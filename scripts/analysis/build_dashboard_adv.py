@@ -17,11 +17,12 @@ import csv, json, os, re, xml.etree.ElementTree as ET
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 HTML = os.path.join(ROOT, "index.html")
-EXP = {"attack": "adv-attack", "mitigated": "adv-mitigated"}
+EXP = ["attack", "mitigated"]  # the per-IP isolation pair (must share one server)
+FOLDERS = {"attack": "adv-attack", "mitigated": "adv-mitigated", "distributed": "adv-distributed"}
 
 
 def path(exp, name):
-    return os.path.join(ROOT, "results", EXP[exp], name)
+    return os.path.join(ROOT, "results", FOLDERS[exp], name)
 
 
 def server_ip(exp):
@@ -127,6 +128,39 @@ def classify(sources, detections, server):
     return roles
 
 
+def build_one(exp, server, sim_time):
+    sources, order = load_sources(exp, sim_time)
+    detections = load_detections(exp)
+    roles = classify(sources, detections, server)
+    delivery = flow_delivery(exp, server)
+
+    src_list = []
+    for mac in order:
+        s = sources[mac]
+        role, shared = roles[mac]
+        ip = server if role == "server" else s["ip"]
+        tx, rx = delivery.get(ip, [0, 0])
+        src_list.append(dict(
+            mac=mac, ip=ip, port=s["port"], role=role, shared=shared,
+            rate=s["rate"], state=s["state"],
+            deliv=round(100 * rx / tx, 1) if tx else None,
+        ))
+    order_key = {"client": 0, "innocent": 1, "attacker": 2, "server": 3}
+    src_list.sort(key=lambda d: (order_key[d["role"]], d["port"], d["mac"]))
+
+    def agg(role_set):
+        tx = sum(delivery.get(s["ip"], [0, 0])[0] for s in src_list if s["role"] in role_set)
+        rx = sum(delivery.get(s["ip"], [0, 0])[1] for s in src_list if s["role"] in role_set)
+        return round(100 * rx / tx, 1) if tx else 0.0
+
+    return dict(
+        sources=src_list,
+        detections=detections,
+        metrics=load_metrics(exp),
+        flow=dict(clientDeliv=agg({"client"}), innocentDeliv=agg({"innocent"}), attackerDeliv=agg({"attacker"})),
+    )
+
+
 def build(sim_time):
     srv = {e: server_ip(e) for e in EXP}
     assert srv["attack"] == srv["mitigated"], "server IP differs between runs"
@@ -134,36 +168,12 @@ def build(sim_time):
 
     data = {"meta": {"simTime": sim_time, "server": server}}
     for exp in EXP:
-        sources, order = load_sources(exp, sim_time)
-        detections = load_detections(exp)
-        roles = classify(sources, detections, server)
-        delivery = flow_delivery(exp, server)
+        data[exp] = build_one(exp, server, sim_time)
 
-        src_list = []
-        for mac in order:
-            s = sources[mac]
-            role, shared = roles[mac]
-            ip = server if role == "server" else s["ip"]
-            tx, rx = delivery.get(ip, [0, 0])
-            src_list.append(dict(
-                mac=mac, ip=ip, port=s["port"], role=role, shared=shared,
-                rate=s["rate"], state=s["state"],
-                deliv=round(100 * rx / tx, 1) if tx else None,
-            ))
-        order_key = {"client": 0, "innocent": 1, "attacker": 2, "server": 3}
-        src_list.sort(key=lambda d: (order_key[d["role"]], d["port"], d["mac"]))
-
-        def agg(role_set):
-            tx = sum(delivery.get(s["ip"], [0, 0])[0] for s in src_list if s["role"] in role_set)
-            rx = sum(delivery.get(s["ip"], [0, 0])[1] for s in src_list if s["role"] in role_set)
-            return round(100 * rx / tx, 1) if tx else 0.0
-
-        data[exp] = dict(
-            sources=src_list,
-            detections=load_detections(exp),
-            metrics=load_metrics(exp),
-            flow=dict(clientDeliv=agg({"client"}), innocentDeliv=agg({"innocent"}), attackerDeliv=agg({"attacker"})),
-        )
+    # Optional 3rd scenario: the distributed (many low-rate devices) attack, for
+    # the live replay. Its host set differs, so its server IP is resolved on its own.
+    if os.path.isdir(os.path.join(ROOT, "results", FOLDERS["distributed"])):
+        data["distributed"] = build_one("distributed", server_ip("distributed"), sim_time)
     return data
 
 
