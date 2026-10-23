@@ -10,15 +10,25 @@
 //                           |                         |
 //                        Server link         Attacker_s  Client_s   <- same port
 //
-// Numbers of clients and dedicated attackers are RANDOM per run (seeded by
-// --run) unless pinned on the command line. The attack starts at t=attackStart.
+// Numbers of clients and dedicated attackers, AND the attack's start time, are
+// all RANDOM per run (seeded by --run) unless pinned on the command line.
+//
+// Optionally (--numLowRateAttackers, off by default so the existing committed
+// results/adv-* stay reproducible), a pool of LOW-rate attackers joins too --
+// each individually sends below the per-source detection threshold, so no
+// single one of them trips the per-source detector; only their combined
+// weight against the learned AGGREGATE baseline does (see "distributed-attack
+// 2nd signal" in sdn-controller-adv.h). This models a real botnet-style flood
+// from many unremarkable devices, e.g. the 3.47 Tbps / ~10,000-source attack
+// Microsoft reported against an Azure customer in Nov 2021.
 //
 // What the advanced controller does with this (see sdn-controller-adv.h):
 //   per-source flow-stats detection -> multi-signal (rate AND small packets)
 //   with an adaptive baseline threshold -> two-stage mitigation (coarse port
 //   block, then surgical per-IP block that frees the innocent client sharing
 //   the port) -> escalating hold-down penalties and a blacklist for repeat
-//   offenders.
+//   offenders -> an aggregate-rate 2nd signal that catches a flood spread
+//   across many individually-small devices.
 
 #include "sdn-controller-adv.h"
 
@@ -40,15 +50,22 @@ main(int argc, char* argv[])
 {
     uint32_t numClients = 0;   // 0 => random in [2,5]
     uint32_t numAttackers = 0; // 0 => random in [1,3] (dedicated-port attackers)
-    uint32_t run = 1;          // RNG run number (varies the random counts)
+    uint32_t run = 1;          // RNG run number (varies the random counts/timing)
     double simTime = 45.0;     // long enough to show repeat-offence escalation -> blacklist
 
     std::string perClientRate = "500Kbps";
     uint32_t clientPacketSize = 512;
     std::string attackRate = "20Mbps";
     uint32_t attackPacketSize = 64;
-    double attackStart = 10.0;
+    double attackStart = -1.0; // -1 => random (seeded by --run); see range below
     double attackStop = -1.0;
+
+    // Distributed (multi-device) attack pool: OFF by default (0) so the
+    // existing committed results/adv-attack and results/adv-mitigated stay
+    // exactly reproducible. Pass --numLowRateAttackers to exercise the
+    // aggregate-rate 2nd detection signal (see sdn-controller-adv.h).
+    uint32_t numLowRateAttackers = 0;
+    std::string lowRateAttackRate = "80Kbps"; // per-device; well under the per-source threshold
 
     std::string hostLinkRate = "100Mbps";
     std::string serverLinkRate = "10Mbps";
@@ -59,21 +76,40 @@ main(int argc, char* argv[])
     bool twoStage = true;
     bool enablePcap = false;
 
+    // Distributed-attack 2nd signal (see sdn-controller-adv.h) -- tunable from
+    // the command line so a --numLowRateAttackers run can be dialed in without
+    // recompiling.
+    double aggMultiplier = 3.0;
+    double alertThresholdFactor = 0.3;
+
     CommandLine cmd;
     cmd.AddValue("numClients", "Legitimate clients on dedicated ports (0 = random 2-5)", numClients);
     cmd.AddValue("numAttackers", "Attackers on dedicated ports (0 = random 1-3)", numAttackers);
-    cmd.AddValue("run", "RNG run number (varies the random host counts)", run);
+    cmd.AddValue("numLowRateAttackers",
+                "Extra attackers flooding BELOW the per-source threshold each (0 = off; models "
+                "a many-device botnet flood -- only the aggregate-rate 2nd signal catches it)",
+                numLowRateAttackers);
+    cmd.AddValue("lowRateAttackRate", "Each low-rate attacker's flood rate", lowRateAttackRate);
+    cmd.AddValue("run", "RNG run number (varies the random host counts/timing)", run);
     cmd.AddValue("simTime", "Simulation duration (s)", simTime);
     cmd.AddValue("perClientRate", "UDP rate per legitimate client", perClientRate);
-    cmd.AddValue("attackRate", "Each attacker's flood rate", attackRate);
+    cmd.AddValue("attackRate", "Each (dedicated/shared) attacker's flood rate", attackRate);
     cmd.AddValue("attackPacketSize", "Attacker flood packet size (bytes)", attackPacketSize);
-    cmd.AddValue("attackStart", "Attack start time (s)", attackStart);
+    cmd.AddValue("attackStart", "Attack start time (s, -1 = random 9-14s, seeded by --run)",
+                attackStart);
     cmd.AddValue("attackStop", "Attack stop time (s, -1 = near sim end)", attackStop);
     cmd.AddValue("serverLinkRate", "Server (bottleneck) link rate", serverLinkRate);
     cmd.AddValue("threshold", "MinThreshold floor (pps) for the adaptive detector", threshold);
     cmd.AddValue("monitorInterval", "Controller polling interval (s)", monitorInterval);
     cmd.AddValue("mitigation", "Enable mitigation (false = detection only)", mitigation);
     cmd.AddValue("twoStage", "Use the two-stage port->IP mitigation", twoStage);
+    cmd.AddValue("aggMultiplier",
+                "Distributed-signal: aggregate threshold = max(floor, this x aggregate "
+                "baseline). Lower it if a --numLowRateAttackers run isn't tripping the alert.",
+                aggMultiplier);
+    cmd.AddValue("alertThresholdFactor",
+                "Per-source threshold multiplier while a distributed alert is active",
+                alertThresholdFactor);
     cmd.AddValue("enablePcap", "Write pcap captures", enablePcap);
     cmd.Parse(argc, argv);
 
@@ -87,13 +123,21 @@ main(int argc, char* argv[])
     {
         numAttackers = rng->GetInteger(1, 3);
     }
+    if (attackStart < 0.0)
+    {
+        // Random, but bounded so it always starts after the controller's baseline
+        // warm-up (~8s) and leaves enough runway before simTime for the full
+        // offence-escalation story (5s -> 20s -> blacklist, ~30s) to play out.
+        attackStart = rng->GetValue(9.0, 14.0);
+    }
     if (attackStop < 0.0)
     {
         attackStop = simTime - 1.0;
     }
 
     std::cout << "[ddos-advanced] run=" << run << " numClients=" << numClients
-              << " numAttackers=" << numAttackers
+              << " numAttackers=" << numAttackers << " numLowRateAttackers=" << numLowRateAttackers
+              << " attackStart=" << attackStart
               << " (+1 shared attacker & 1 innocent client on one shared port)\n";
 
     // --- Nodes ---
@@ -101,6 +145,8 @@ main(int argc, char* argv[])
     clients.Create(numClients);
     NodeContainer attackers;
     attackers.Create(numAttackers);
+    NodeContainer lowRateAttackers; // distributed-attack pool (see numLowRateAttackers above)
+    lowRateAttackers.Create(numLowRateAttackers);
     Ptr<Node> attackerShared = CreateObject<Node>();
     Ptr<Node> innocentShared = CreateObject<Node>();
     Ptr<Node> server = CreateObject<Node>();
@@ -135,6 +181,10 @@ main(int argc, char* argv[])
     {
         addDedicated(attackers.Get(i), false);
     }
+    for (uint32_t i = 0; i < numLowRateAttackers; i++)
+    {
+        addDedicated(lowRateAttackers.Get(i), false);
+    }
     uint32_t serverIndex = hostDevices.GetN();
     addDedicated(server, true);
 
@@ -157,6 +207,8 @@ main(int argc, char* argv[])
     controllerApp->SetAttribute("MonitorInterval", TimeValue(Seconds(monitorInterval)));
     controllerApp->SetAttribute("EnableMitigation", BooleanValue(mitigation));
     controllerApp->SetAttribute("TwoStage", BooleanValue(twoStage));
+    controllerApp->SetAttribute("AggMultiplier", DoubleValue(aggMultiplier));
+    controllerApp->SetAttribute("AlertThresholdFactor", DoubleValue(alertThresholdFactor));
     of13->InstallController(controllerNode, controllerApp);
     of13->InstallSwitch(switchNode, switchPorts);
     of13->CreateOpenFlowChannels();
@@ -209,6 +261,21 @@ main(int argc, char* argv[])
         flood.SetAttribute("OnTime", StringValue("ns3::ConstantRandomVariable[Constant=1]"));
         flood.SetAttribute("OffTime", StringValue("ns3::ConstantRandomVariable[Constant=0]"));
         ApplicationContainer app = flood.Install(attack.Get(i));
+        app.Start(Seconds(attackStart));
+        app.Stop(Seconds(attackStop));
+    }
+
+    // --- Distributed attack traffic: many devices, each BELOW the per-source
+    //     threshold on its own -- only the aggregate-rate 2nd signal catches
+    //     this (see sdn-controller-adv.h). Off by default (numLowRateAttackers=0).
+    for (uint32_t i = 0; i < numLowRateAttackers; i++)
+    {
+        OnOffHelper trickle("ns3::UdpSocketFactory", InetSocketAddress(serverAddr, port));
+        trickle.SetAttribute("DataRate", StringValue(lowRateAttackRate));
+        trickle.SetAttribute("PacketSize", UintegerValue(attackPacketSize));
+        trickle.SetAttribute("OnTime", StringValue("ns3::ConstantRandomVariable[Constant=1]"));
+        trickle.SetAttribute("OffTime", StringValue("ns3::ConstantRandomVariable[Constant=0]"));
+        ApplicationContainer app = trickle.Install(lowRateAttackers.Get(i));
         app.Start(Seconds(attackStart));
         app.Stop(Seconds(attackStop));
     }

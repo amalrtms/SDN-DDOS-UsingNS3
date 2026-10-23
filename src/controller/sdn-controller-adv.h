@@ -48,6 +48,19 @@ namespace ns3
  *     unblock the source stays on a watchlist with a reduced threshold so a
  *     re-offense is caught faster.
  *
+ *  6. DISTRIBUTED-attack second signal. Per-source detection alone misses an
+ *     attacker that floods from many devices, each individually below the
+ *     per-source threshold (the real-world case: Microsoft reported a 3.47
+ *     Tbps attack in Nov 2021 from ~10,000 sources, none remarkable on its
+ *     own). Each poll also compares the TOTAL rate across all sources to a
+ *     learned aggregate baseline; if the total is anomalously high *and*
+ *     source entropy stays high (many sources contributing roughly equally,
+ *     not one or two dominating -- the opposite of a concentrated flood),
+ *     the controller raises a time-limited DISTRIBUTED_ALERT that temporarily
+ *     tightens every source's own threshold, so each contributing device
+ *     trips the existing per-source detector on the very next poll instead of
+ *     hiding under an individually-small rate.
+ *
  * Rate-limiting with OpenFlow meters (instead of an outright drop) is left as
  * documented future scope.
  */
@@ -115,6 +128,12 @@ class SdnControllerAdv : public OFSwitch13Controller
     double m_baselineRate = 0.0; //!< Peak legitimate per-source rate seen in the warm-up.
     bool m_baselineReady = false;
 
+    // --- distributed (multi-device) attack detection: a 2nd signal that does
+    //     not depend on any single source's own rate ---
+    double m_aggBaselineRate = 0.0; //!< Peak TOTAL legitimate rate (all sources) in warm-up.
+    bool m_distributedAlert = false; //!< Currently in a heightened-alert window?
+    Time m_alertUntil;               //!< Alert auto-clears once past this time.
+
     // --- configurable attributes ---
     Time m_monitorInterval;
     double m_minThreshold;       //!< Floor for the adaptive threshold (pps).
@@ -129,6 +148,12 @@ class SdnControllerAdv : public OFSwitch13Controller
     Time m_stage2Delay;          //!< Port-block -> IP-block refinement delay.
     bool m_mitigationEnabled;    //!< Install drop rules at all?
     bool m_twoStage;             //!< Use the port->IP two-stage path?
+
+    // --- distributed-attack 2nd signal: configurable attributes ---
+    double m_aggMultiplier;      //!< aggThreshold = max(floor, this x aggBaseline).
+    double m_alertEntropyFloor;  //!< Min source entropy (bits) to call traffic "spread out".
+    Time m_alertHoldTime;        //!< How long a DISTRIBUTED_ALERT stays active after last trigger.
+    double m_alertThresholdFactor; //!< Per-source threshold multiplier while alert is active.
 
     // --- output files ---
     std::ofstream m_monitorFile;

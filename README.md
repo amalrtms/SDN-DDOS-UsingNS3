@@ -46,11 +46,25 @@ number of clients and attackers is **randomised per run** (`--run`):
    client**, vs ~30% with no mitigation).
 4. **Penalties** — each offence is held down longer (5 s → 20 s → …); after
    `MaxStrikes` the source is permanently `BLACKLISTED`.
+5. **Randomised attack timing** — the attack start is also random per `--run`
+   (9–14 s window), not a fixed 10 s, so results aren't tuned to one instant.
+6. **Distributed (multi-device) detection** — per-source detection alone misses a
+   flood spread across many devices that are *each* below the per-source
+   threshold. A second signal watches the **aggregate** rate across all sources
+   against a learned aggregate baseline while **source entropy stays high** (many
+   roughly-equal contributors, not one dominating flood); when both hold it raises
+   a time-limited `DISTRIBUTED_ALERT` that tightens every source's own threshold
+   so each small contributor then trips the per-source detector. Tunable via
+   `AggMultiplier`, `AlertEntropyFloor`, `AlertHoldTime`, `AlertThresholdFactor`.
 
-Run it with `./ns3 run "ddos-advanced --run=1"` (results in `results/adv-mitigated`
-and `results/adv-attack`). Rate-limiting with OpenFlow **meters** instead of an
-outright drop is left as future scope. The original Phase 1–13 controller and its
-results are unchanged; the v1 dashboard is preserved as `index-v1.html`.
+Runs (results committed under `results/`):
+- `./ns3 run "ddos-advanced --run=1"` → `adv-mitigated` / `adv-attack` (per-IP isolation story)
+- `./ns3 run "ddos-advanced --run=1"` → `adv-attack-v3` (same, with randomised timing)
+- `./ns3 run "ddos-advanced --run=2 --attackRate=120Kbps --numLowRateAttackers=15 --lowRateAttackRate=120Kbps"`
+  → `adv-distributed` (all attackers low-rate; `DISTRIBUTED_ALERT_ON` fires at the aggregate signal — real result: ~5,075 pps across 24 sources, entropy 4.5, all 19 attackers then caught).
+
+Rate-limiting with OpenFlow **meters** instead of an outright drop is left as
+future scope. The original Phase 1–13 controller and its results are unchanged.
 
 ---
 

@@ -25,7 +25,11 @@ SdnControllerAdv::SdnControllerAdv()
       m_maxStrikes(3),
       m_stage2Delay(Seconds(0.5)),
       m_mitigationEnabled(true),
-      m_twoStage(true)
+      m_twoStage(true),
+      m_aggMultiplier(3.0),
+      m_alertEntropyFloor(2.0),
+      m_alertHoldTime(Seconds(5.0)),
+      m_alertThresholdFactor(0.3)
 {
     NS_LOG_FUNCTION(this);
 }
@@ -90,7 +94,29 @@ SdnControllerAdv::GetTypeId()
             .AddAttribute("TwoStage", "Use the port-block then IP-block two-stage response.",
                           BooleanValue(true),
                           MakeBooleanAccessor(&SdnControllerAdv::m_twoStage),
-                          MakeBooleanChecker());
+                          MakeBooleanChecker())
+            .AddAttribute("AggMultiplier",
+                          "Distributed-attack signal: aggThreshold = max(floor, this x "
+                          "aggregate baseline). Catches many-device floods that are each "
+                          "individually below the per-source threshold.",
+                          DoubleValue(3.0),
+                          MakeDoubleAccessor(&SdnControllerAdv::m_aggMultiplier),
+                          MakeDoubleChecker<double>())
+            .AddAttribute("AlertEntropyFloor",
+                          "Min source entropy (bits) for traffic to count as 'spread across "
+                          "many sources' rather than a concentrated few-source flood.",
+                          DoubleValue(2.0),
+                          MakeDoubleAccessor(&SdnControllerAdv::m_alertEntropyFloor),
+                          MakeDoubleChecker<double>())
+            .AddAttribute("AlertHoldTime", "How long a DISTRIBUTED_ALERT stays active.",
+                          TimeValue(Seconds(5.0)),
+                          MakeTimeAccessor(&SdnControllerAdv::m_alertHoldTime), MakeTimeChecker())
+            .AddAttribute("AlertThresholdFactor",
+                          "Per-source threshold multiplier while a distributed alert is active "
+                          "(lower = every source is watched more strictly).",
+                          DoubleValue(0.3),
+                          MakeDoubleAccessor(&SdnControllerAdv::m_alertThresholdFactor),
+                          MakeDoubleChecker<double>());
     return tid;
 }
 
@@ -134,7 +160,8 @@ SdnControllerAdv::HandshakeSuccessful(Ptr<const RemoteSwitch> swtch)
                         << "Threshold,Offense,Event\n";
         m_metricsFile.open("metrics.csv");
         m_metricsFile << "TimeSec,ActiveSources,SourceEntropy,TopTalkerPct,BaselineRate,"
-                      << "Threshold,BaselineReady\n";
+                      << "Threshold,BaselineReady,AggregateRate,AggregateThreshold,"
+                      << "DistributedAlert\n";
         m_filesOpen = true;
     }
 
@@ -271,6 +298,14 @@ SdnControllerAdv::ProcessFlowStats(uint64_t swDpId, struct ofl_msg_multipart_rep
                       << state << "\n";
     }
 
+    // Learn the AGGREGATE (all-sources) baseline too, during the same warm-up
+    // window -- this is what the distributed-attack 2nd signal compares against.
+    double aggRateNow = totalDelta / interval;
+    if (t <= m_baselineWindow.GetSeconds() && aggRateNow > m_aggBaselineRate)
+    {
+        m_aggBaselineRate = aggRateNow;
+    }
+
     // 3. Mark the baseline ready once the warm-up ends.
     if (!m_baselineReady && t > m_baselineWindow.GetSeconds())
     {
@@ -279,7 +314,12 @@ SdnControllerAdv::ProcessFlowStats(uint64_t swDpId, struct ofl_msg_multipart_rep
         {
             m_baselineRate = m_minThreshold / std::max(1.0, m_baselineMultiplier);
         }
-        NS_LOG_INFO("Baseline learned: " << m_baselineRate << " pps, detection active.");
+        if (m_aggBaselineRate <= 0.0)
+        {
+            m_aggBaselineRate = m_baselineRate;
+        }
+        NS_LOG_INFO("Baseline learned: " << m_baselineRate << " pps/source, "
+                                         << m_aggBaselineRate << " pps aggregate, detection active.");
     }
 
     // 4. Global metrics: source entropy and top-talker share -- extra DDoS
@@ -300,15 +340,56 @@ SdnControllerAdv::ProcessFlowStats(uint64_t swDpId, struct ofl_msg_multipart_rep
     }
     double thr = m_baselineReady ? std::max(m_minThreshold, m_baselineMultiplier * m_baselineRate)
                                  : 0.0;
+
+    // 5. Distributed (multi-device) attack 2nd signal: a single-attacker flood
+    //    concentrates traffic on one source (entropy collapses, topShare spikes)
+    //    and gets caught by the per-source check above. A flood split across
+    //    many devices, each individually under the per-source threshold, looks
+    //    the opposite: the AGGREGATE rate is anomalously high while entropy
+    //    STAYS high (many roughly-equal contributors). That combination is what
+    //    a fixed per-source rate check alone can never catch.
+    double aggThr = m_baselineReady ? std::max(2.0 * m_minThreshold, m_aggMultiplier * m_aggBaselineRate)
+                                    : 0.0;
+    bool aggHigh = m_baselineReady && aggRateNow > aggThr;
+    bool spread = entropy > m_alertEntropyFloor;
+    if (aggHigh && spread)
+    {
+        if (!m_distributedAlert)
+        {
+            m_detectionFile << t << "," << swDpId << ",AGGREGATE,-,0," << aggRateNow << ",0,"
+                            << aggThr << ",0,DISTRIBUTED_ALERT_ON\n";
+            NS_LOG_WARN("Distributed attack suspected: aggregate " << aggRateNow << " pps across "
+                                                                    << deltas.size()
+                                                                    << " sources, entropy " << entropy);
+        }
+        m_distributedAlert = true;
+        m_alertUntil = Simulator::Now() + m_alertHoldTime;
+    }
+    else if (m_distributedAlert && Simulator::Now() >= m_alertUntil)
+    {
+        m_distributedAlert = false;
+        m_detectionFile << t << "," << swDpId << ",AGGREGATE,-,0," << aggRateNow << ",0," << aggThr
+                        << ",0,DISTRIBUTED_ALERT_OFF\n";
+    }
+
     m_metricsFile << t << "," << deltas.size() << "," << entropy << "," << (topShare * 100.0) << ","
-                  << m_baselineRate << "," << thr << "," << (m_baselineReady ? 1 : 0) << "\n";
+                  << m_baselineRate << "," << thr << "," << (m_baselineReady ? 1 : 0) << ","
+                  << aggRateNow << "," << aggThr << "," << (m_distributedAlert ? 1 : 0) << "\n";
 }
 
 double
 SdnControllerAdv::ThresholdFor(const SrcState& s) const
 {
     double base = std::max(m_minThreshold, m_baselineMultiplier * m_baselineRate);
-    return s.watched ? base * m_watchlistFactor : base;
+    double thr = s.watched ? base * m_watchlistFactor : base;
+    // 2nd detection step: while a distributed (multi-device) attack is
+    // suspected, every source's own threshold is tightened so each
+    // individually-small contributor trips the normal per-source path above.
+    if (m_distributedAlert)
+    {
+        thr *= m_alertThresholdFactor;
+    }
+    return thr;
 }
 
 void
