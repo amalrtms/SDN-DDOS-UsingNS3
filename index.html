@@ -1,18 +1,17 @@
-<title>SDN DDoS Shield</title>
+<title>SDN DDoS Shield v2</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <style>
-/* Visual world: a network signal-monitor console. Near-black ground with a faint
-   graph-paper grid, flat hairline panels (no soft cards or shadows), monospace chrome,
-   and "// " code-comment section labels. Single committed dark theme. Role colors read
-   as traffic signals: green legit, red attacker, amber control-plane, cyan switch. */
+/* Network signal-monitor console. Near-black graph-paper ground, flat hairline
+   panels, monospace chrome, "// " section labels. Single committed dark theme.
+   Role colors: green legit, red attacker, amber control-plane, cyan switch. */
 :root{
   --bg:#080b0e; --panel:#0e1317; --panel-2:#0b0f13; --inset:#131a20;
   --fg:#d4ddd8; --muted:#73858a; --faint:#4c5c63; --line:#1b242b;
-  --accent:#f2a93b;            /* control plane / controller — amber */
-  --client:#49dd97; --attacker:#ff4d63; --server:#e9eedd; --switch:#4fcfe3;
+  --accent:#f2a93b; --client:#49dd97; --attacker:#ff4d63; --server:#e9eedd; --switch:#4fcfe3;
+  --innocent:#49dd97; --blacklist:#ff2e4d;
   --ok:#49dd97; --warn:#f2a93b; --crit:#ff4d63;
   --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
@@ -22,155 +21,126 @@
 body{background-color:var(--bg);color:var(--fg);font-family:var(--mono);font-size:13px;line-height:1.5;margin:0;
   -webkit-font-smoothing:antialiased;
   background-image:linear-gradient(rgba(130,160,165,.035) 1px,transparent 1px),
-    linear-gradient(90deg,rgba(130,160,165,.035) 1px,transparent 1px);
-  background-size:30px 30px}
+    linear-gradient(90deg,rgba(130,160,165,.035) 1px,transparent 1px);background-size:30px 30px}
 .wrap{max-width:1180px;margin:0 auto;
-  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));}
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 h1,h2,h3{margin:0;text-wrap:balance}
-
-/* ---- header ---- */
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:20;background:var(--panel)}
 header{position:sticky;top:env(safe-area-inset-top,0px);z-index:15;background:var(--panel);border-bottom:1px solid var(--line)}
 .head{display:flex;align-items:center;gap:14px;padding-block:13px;flex-wrap:wrap}
 .brand{display:flex;align-items:center;gap:11px;min-width:0}
 .logo{width:32px;height:32px;flex:none}
 .brand h1{font-family:var(--sans);font-size:18px;font-weight:700;letter-spacing:-.025em;white-space:nowrap}
-.brand .sub{font-size:11px;color:var(--muted);letter-spacing:.01em}
-.head .src{margin-left:auto;font-size:10.5px;color:var(--faint);
-  display:flex;align-items:center;gap:8px;text-align:right;letter-spacing:.01em}
+.brand .sub{font-size:11px;color:var(--muted)}
+.head .src{margin-left:auto;font-size:10.5px;color:var(--faint);display:flex;align-items:center;gap:8px;text-align:right}
 .dot{width:7px;height:7px;background:var(--ok);flex:none;animation:blink 1.6s steps(2) infinite}
 
-/* ---- control bar ---- */
 .controls{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding-block:13px}
 button{font-family:var(--mono);font-size:12.5px;font-weight:500;color:var(--fg);background:var(--panel-2);
-  border:1px solid var(--line);border-radius:3px;padding:8px 13px;cursor:pointer;display:inline-flex;
-  align-items:center;gap:7px;transition:border-color .12s,background .12s,color .12s}
+  border:1px solid var(--line);border-radius:3px;padding:8px 13px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;
+  transition:border-color .12s,background .12s,color .12s}
 button:hover{border-color:var(--muted)}
 button:active{transform:translateY(1px)}
 button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 button.primary{background:var(--accent);border-color:var(--accent);color:#0a0d0a;font-weight:600}
-button.primary:hover{filter:brightness(1.08)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:3px;overflow:hidden}
 .seg button{border:0;border-radius:0;background:transparent;padding:8px 12px}
 .seg button[aria-pressed="true"]{background:var(--accent);color:#0a0d0a;font-weight:600}
 .spc{flex:1 1 auto}
-.toggle{display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:3px;
-  padding:6px 12px 6px 13px;background:var(--panel-2);font-size:12px;cursor:pointer}
-.toggle .sw{width:34px;height:18px;border-radius:2px;background:var(--inset);border:1px solid var(--line);position:relative;transition:background .16s,border-color .16s;flex:none}
-.toggle .sw::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:1px;
-  background:var(--muted);transition:transform .16s,background .16s}
+.toggle{display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:3px;padding:6px 12px 6px 13px;
+  background:var(--panel-2);font-size:12px;cursor:pointer}
+.toggle .sw{width:34px;height:18px;border-radius:2px;background:var(--inset);border:1px solid var(--line);position:relative;transition:.16s;flex:none}
+.toggle .sw::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:1px;background:var(--muted);transition:.16s}
 .toggle[aria-pressed="true"] .sw{background:color-mix(in srgb,var(--ok) 22%,transparent);border-color:var(--ok)}
 .toggle[aria-pressed="true"] .sw::after{transform:translateX(16px);background:var(--ok)}
-.toggle .lab{color:var(--muted);letter-spacing:.01em}
-.toggle[aria-pressed="true"] .lab{color:var(--fg)}
+.toggle .lab{color:var(--muted)} .toggle[aria-pressed="true"] .lab{color:var(--fg)}
 
-/* ---- timeline ---- */
 .timeline{padding-bottom:16px}
 .tl-row{display:flex;align-items:center;gap:13px}
-.tl-clock{font-size:15px;font-weight:600;min-width:118px;color:var(--fg);font-variant-numeric:tabular-nums}
+.tl-clock{font-size:15px;font-weight:600;min-width:120px;font-variant-numeric:tabular-nums}
 .tl-clock small{color:var(--muted);font-weight:400;font-size:11px}
 .track{position:relative;flex:1;height:30px;cursor:pointer;touch-action:none}
 .track .rail{position:absolute;top:13px;left:0;right:0;height:4px;background:var(--inset);border:1px solid var(--line);overflow:hidden}
 .track .fill{position:absolute;inset:0;width:0;background:var(--accent)}
 .track .mk{position:absolute;top:3px;width:1px;height:24px}
-.track .mk span{position:absolute;top:-15px;left:50%;transform:translateX(-50%);font-size:9px;
-  white-space:nowrap;letter-spacing:.02em}
-.track .head{position:absolute;top:8px;width:12px;height:12px;background:var(--accent);
-  transform:translate(-50%,0) rotate(45deg);border:1px solid var(--bg)}
+.track .mk span{position:absolute;top:-15px;left:50%;transform:translateX(-50%);font-size:9px;white-space:nowrap}
+.track .head{position:absolute;top:8px;width:12px;height:12px;background:var(--accent);transform:translate(-50%,0) rotate(45deg);border:1px solid var(--bg)}
 
-/* ---- grid ---- */
-.grid{display:grid;grid-template-columns:1.52fr 1fr;gap:14px;padding-bottom:28px;align-items:start}
-@media (max-width:860px){.grid{grid-template-columns:1fr}}
+.grid{display:grid;grid-template-columns:1.5fr 1fr;gap:14px;padding-bottom:28px;align-items:start}
+@media (max-width:880px){.grid{grid-template-columns:1fr}}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:3px}
 .card .ch{display:flex;align-items:center;gap:9px;padding:10px 14px;border-bottom:1px solid var(--line)}
-.card .ch h3{font-size:12px;font-weight:500;color:var(--fg);letter-spacing:.01em}
-.card .ch h3::before{content:"// ";color:var(--muted)}
-.card .ch .badge{margin-left:auto;font-size:10px;color:var(--faint);letter-spacing:.02em}
+.card .ch h3{font-size:12px;font-weight:500;color:var(--fg)} .card .ch h3::before{content:"// ";color:var(--muted)}
+.card .ch .badge{margin-left:auto;font-size:10px;color:var(--faint)}
 .col{display:flex;flex-direction:column;gap:14px;min-width:0}
 
-/* topology */
-.topo-card .body{position:relative}
-#topo{display:block;width:100%;height:auto;aspect-ratio:16/12.2;max-width:100%}
-@media (max-width:860px){#topo{aspect-ratio:16/13.5}}
+#topo{display:block;width:100%;height:auto;aspect-ratio:16/13;max-width:100%}
 .status-strip{display:flex;align-items:center;gap:11px;padding:11px 14px;border-top:1px solid var(--line);flex-wrap:wrap}
-.pill{display:inline-flex;align-items:center;gap:8px;font-size:11.5px;font-weight:600;padding:5px 10px;border-radius:2px;
-  letter-spacing:.06em;text-transform:uppercase;border:1px solid}
+.pill{display:inline-flex;align-items:center;gap:8px;font-size:11.5px;font-weight:600;padding:5px 10px;border-radius:2px;letter-spacing:.06em;text-transform:uppercase;border:1px solid}
 .pill .pdot{width:8px;height:8px}
-.pill.ok{color:var(--ok);background:color-mix(in srgb,var(--ok) 9%,transparent);border-color:color-mix(in srgb,var(--ok) 38%,transparent)}
-.pill.ok .pdot{background:var(--ok)}
-.pill.crit{color:var(--crit);background:color-mix(in srgb,var(--crit) 10%,transparent);border-color:color-mix(in srgb,var(--crit) 42%,transparent)}
-.pill.crit .pdot{background:var(--crit);animation:blink .9s steps(2) infinite}
-.pill.mit{color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);border-color:color-mix(in srgb,var(--accent) 42%,transparent)}
-.pill.mit .pdot{background:var(--accent)}
+.pill.ok{color:var(--ok);background:color-mix(in srgb,var(--ok) 9%,transparent);border-color:color-mix(in srgb,var(--ok) 38%,transparent)}.pill.ok .pdot{background:var(--ok)}
+.pill.crit{color:var(--crit);background:color-mix(in srgb,var(--crit) 10%,transparent);border-color:color-mix(in srgb,var(--crit) 42%,transparent)}.pill.crit .pdot{background:var(--crit);animation:blink .9s steps(2) infinite}
+.pill.mit{color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);border-color:color-mix(in srgb,var(--accent) 42%,transparent)}.pill.mit .pdot{background:var(--accent)}
 @keyframes blink{50%{opacity:.2}}
 .phase-note{font-family:var(--sans);font-size:12px;color:var(--muted);min-width:0}
 
-/* metric tiles */
 .tiles{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);overflow:hidden;border:1px solid var(--line);border-radius:3px}
 .tile{background:var(--panel);padding:12px 14px}
-.tile .k{font-size:10px;color:var(--muted);letter-spacing:.02em}
-.tile .k::before{content:"· "}
-.tile .v{font-size:23px;font-weight:600;margin-top:4px;letter-spacing:-.01em;line-height:1.1;font-variant-numeric:tabular-nums}
-.tile .u{font-size:11px;color:var(--faint);font-weight:400}
+.tile .k{font-size:10px;color:var(--muted)}.tile .k::before{content:"· "}
+.tile .v{font-size:22px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums;line-height:1.1}
+.tile .u{font-size:11px;color:var(--faint)}
 .tile.alarm .v{color:var(--crit)}
 
-/* chart */
-#chart{display:block;width:100%;height:auto;aspect-ratio:16/8;padding:10px 12px 4px}
-.legend{display:flex;gap:16px;flex-wrap:wrap;padding:4px 14px 12px;font-size:11px;color:var(--muted)}
-.legend span{display:inline-flex;align-items:center;gap:7px}
-.legend i{width:14px;height:2px;display:inline-block}
+canvas.chart{display:block;width:100%;height:auto;padding:10px 12px 4px}
+#rate{aspect-ratio:16/8}#entropy{aspect-ratio:16/5}
+.legend{display:flex;gap:14px;flex-wrap:wrap;padding:4px 14px 12px;font-size:11px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:7px}.legend i{width:14px;height:2px;display:inline-block}
 
-/* flow table — reads like dpctl output */
+.rep{padding:7px 8px;display:flex;flex-direction:column;gap:3px}
+.rep-row{display:grid;grid-template-columns:1fr auto auto;gap:9px;align-items:center;padding:7px 9px;border-radius:2px;font-size:11.5px;border:1px solid var(--line);background:var(--panel-2)}
+.rep-row .ip{color:var(--fg)}.rep-row .ip small{color:var(--faint)}
+.rep-row .off{color:var(--muted);font-size:10.5px}
+.rep-row .st{font-size:10px;font-weight:600;padding:2px 7px;border-radius:2px;letter-spacing:.03em}
+.st.NORMAL{color:var(--muted);background:var(--inset)}
+.st.WATCH{color:var(--warn);background:color-mix(in srgb,var(--warn) 13%,transparent)}
+.st.BLOCKED{color:var(--accent);background:color-mix(in srgb,var(--accent) 13%,transparent)}
+.st.BLACKLISTED{color:#fff;background:var(--blacklist)}
+
 .flows{padding:7px 8px 9px}
-.flow{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:7px 9px;border-radius:2px;
-  font-size:11.5px;border:1px solid transparent}
+.flow{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:7px 9px;border-radius:2px;font-size:11.5px;border:1px solid transparent}
 .flow+.flow{margin-top:2px}
-.flow .prio{color:var(--faint);font-size:10.5px}
-.flow .match{color:var(--fg);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flow .prio{color:var(--faint);font-size:10.5px}.flow .match{color:var(--fg);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .flow .act{font-weight:600;font-size:10px;padding:2px 7px;border-radius:2px;letter-spacing:.04em}
 .flow.fwd .act{color:var(--ok);background:color-mix(in srgb,var(--ok) 13%,transparent)}
 .flow.miss .act{color:var(--muted);background:var(--inset)}
-.flow.drop{background:color-mix(in srgb,var(--crit) 8%,transparent);border-color:color-mix(in srgb,var(--crit) 34%,transparent)}
-.flow.drop .act{color:#0a0d0a;background:var(--crit)}
-.flow .mc{color:var(--faint);font-size:10px;grid-column:2;margin-top:-3px}
+.flow.port{background:color-mix(in srgb,var(--accent) 7%,transparent);border-color:color-mix(in srgb,var(--accent) 30%,transparent)}.flow.port .act{color:#0a0d0a;background:var(--accent)}
+.flow.ip{background:color-mix(in srgb,var(--crit) 8%,transparent);border-color:color-mix(in srgb,var(--crit) 34%,transparent)}.flow.ip .act{color:#0a0d0a;background:var(--crit)}
 .flow.new{animation:popin .4s ease}
 @keyframes popin{from{opacity:0;transform:translateY(-6px)}}
 
-/* log */
-.log{padding:7px 6px;max-height:224px;overflow:auto;display:flex;flex-direction:column;gap:1px}
-.le{display:grid;grid-template-columns:54px 1fr;gap:9px;padding:5px 9px;border-radius:2px;font-size:11.5px;align-items:baseline;border-left:2px solid transparent}
-.le .t{font-size:10.5px;color:var(--faint)}
-.le .m{min-width:0;color:var(--fg)}
-.le.warn{border-left-color:var(--warn)}
-.le.crit{border-left-color:var(--crit)}
-.le.crit .m{color:var(--crit);font-weight:600}
-.le.act{border-left-color:var(--accent)}
-.le.act .m{color:var(--accent);font-weight:600}
+.log{padding:7px 6px;max-height:230px;overflow:auto;display:flex;flex-direction:column;gap:1px}
+.le{display:grid;grid-template-columns:52px 1fr;gap:9px;padding:5px 9px;border-radius:2px;font-size:11.5px;align-items:baseline;border-left:2px solid transparent}
+.le .t{font-size:10.5px;color:var(--faint)}.le .m{min-width:0;color:var(--fg)}.le .m b{font-weight:600}
+.le.warn{border-left-color:var(--warn)}.le.crit{border-left-color:var(--crit)}.le.crit .m{color:var(--crit)}
+.le.act{border-left-color:var(--accent)}.le.act .m{color:var(--accent)}
+.le.black{border-left-color:var(--blacklist)}.le.black .m{color:var(--blacklist);font-weight:600}
 .le.in{animation:popin .35s ease}
-.le .m b{font-weight:600}
 
-/* outcome */
-.outcome{padding:14px 14px;display:flex;flex-direction:column;gap:13px}
+.outcome{padding:14px;display:flex;flex-direction:column;gap:12px}
 .ob{display:flex;flex-direction:column;gap:5px}
-.ob .obh{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted)}
-.ob .obh .r{font-weight:600;font-variant-numeric:tabular-nums}
+.ob .obh{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted)}.ob .obh .r{font-weight:600;font-variant-numeric:tabular-nums}
 .bar{height:10px;background:var(--inset);border:1px solid var(--line);overflow:hidden;position:relative}
 .bar i{position:absolute;inset:0;width:0;transition:width .9s cubic-bezier(.3,.8,.3,1)}
-.ob.att .bar i{background:var(--crit)} .ob.att .obh .r{color:var(--crit)}
-.ob.mit .bar i{background:var(--ok)} .ob.mit .obh .r{color:var(--ok)}
-.ob.cur .obh{color:var(--fg)}
-.ob.cur .obh::after{content:" ◂ now";color:var(--faint);font-weight:400}
+.ob.good .bar i{background:var(--ok)}.ob.good .obh .r{color:var(--ok)}
+.ob.bad .bar i{background:var(--crit)}.ob.bad .obh .r{color:var(--crit)}
+.ob.hl .obh{color:var(--fg)}.ob.hl .obh::after{content:" ◂ shared port";color:var(--faint);font-weight:400}
 .outcome .foot{font-size:10.5px;color:var(--faint);border-top:1px solid var(--line);padding-top:10px;line-height:1.6}
-.outcome .foot b{color:var(--muted)}
 
-.how{padding:0 0 32px}
-.how .card{padding:16px 16px}
-.how h2{font-size:12px;font-weight:500;color:var(--fg);margin-bottom:14px;letter-spacing:.01em}
-.how h2::before{content:"// ";color:var(--muted)}
-.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;counter-reset:s}
+.how{padding:0 0 32px}.how .card{padding:16px}
+.how h2{font-size:12px;font-weight:500;color:var(--fg);margin-bottom:14px}.how h2::before{content:"// ";color:var(--muted)}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:14px;counter-reset:s}
 .step{position:relative;padding-left:28px;font-family:var(--sans);font-size:12.5px;color:var(--muted);line-height:1.5}
-.step::before{counter-increment:s;content:"0" counter(s);position:absolute;left:0;top:0;
-  color:var(--accent);font-family:var(--mono);font-size:11px;font-weight:600}
+.step::before{counter-increment:s;content:"0" counter(s);position:absolute;left:0;top:0;color:var(--accent);font-family:var(--mono);font-size:11px;font-weight:600}
 .step b{color:var(--fg);font-weight:600;font-family:var(--mono);font-size:11.5px}
 .step code{font-family:var(--mono);font-size:11px;background:var(--inset);padding:1px 5px;border-radius:2px;color:var(--fg)}
 .foottext{font-family:var(--sans);font-size:11.5px;color:var(--faint);padding:2px 0 36px;line-height:1.65}
@@ -182,509 +152,455 @@ button.primary:hover{filter:brightness(1.08)}
   <div class="wrap head">
     <div class="brand">
       <svg class="logo" viewBox="0 0 40 40" fill="none" aria-hidden="true">
-        <rect x="1" y="1" width="38" height="38" rx="9" fill="var(--accent)" opacity="0.12"/>
-        <path d="M20 6 L31 11.5 V20 C31 27 26 31.5 20 34 C14 31.5 9 27 9 20 V11.5 Z"
-              fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linejoin="round"/>
-        <circle cx="20" cy="18.5" r="3.1" fill="var(--accent)"/>
-        <path d="M20 21.6 V27" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
+        <rect x="1" y="1" width="38" height="38" rx="8" fill="var(--accent)" opacity="0.12"/>
+        <path d="M20 6 L31 11.5 V20 C31 27 26 31.5 20 34 C14 31.5 9 27 9 20 V11.5 Z" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linejoin="round"/>
+        <circle cx="20" cy="18.5" r="3.1" fill="var(--accent)"/><path d="M20 21.6 V27" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
       </svg>
-      <div>
-        <h1>SDN DDoS Shield</h1>
-        <div class="sub">OpenFlow controller · live detection &amp; mitigation</div>
-      </div>
+      <div><h1>SDN DDoS Shield v2</h1><div class="sub">per-source detection · per-IP isolation · penalties</div></div>
     </div>
-    <div class="src">
-      <span class="dot"></span>
-      <span>ns-3.40 · OFSwitch13<br>replaying real simulation output</span>
-    </div>
+    <div class="src"><span class="dot"></span><span>ns-3.40 · OFSwitch13<br>replaying real simulation output</span></div>
   </div>
 </header>
 
 <div class="wrap">
-
   <div class="controls">
-    <button id="play" class="primary" aria-label="Play or pause">▶ Play</button>
-    <button id="restart" aria-label="Restart">↻ Restart</button>
-    <div class="seg" role="group" aria-label="Playback speed">
+    <button id="play" class="primary">▶ Play</button>
+    <button id="restart">↻ Restart</button>
+    <div class="seg" role="group" aria-label="Speed">
       <button data-spd="1" aria-pressed="false">1×</button>
       <button data-spd="2" aria-pressed="true">2×</button>
       <button data-spd="4" aria-pressed="false">4×</button>
     </div>
     <span class="spc"></span>
-    <button id="mit" class="toggle" aria-pressed="true" aria-label="Toggle controller mitigation">
-      <span class="sw"></span><span class="lab">Controller mitigation</span>
-    </button>
+    <button id="mit" class="toggle" aria-pressed="true"><span class="sw"></span><span class="lab">Controller mitigation</span></button>
   </div>
 
   <div class="timeline">
     <div class="tl-row">
-      <div class="tl-clock"><span id="clock">0.00</span><small> s / 20 s sim</small></div>
-      <div class="track" id="track" role="slider" aria-label="Simulation time" aria-valuemin="0" aria-valuemax="20" aria-valuenow="0" tabindex="0">
+      <div class="tl-clock"><span id="clock">0.0</span><small> s / <span id="simlen">45</span>s</small></div>
+      <div class="track" id="track" role="slider" aria-label="Simulation time" aria-valuemin="0" aria-valuemax="45" aria-valuenow="0" tabindex="0">
         <div class="rail"><div class="fill" id="fill"></div></div>
-        <div class="mk" style="left:50%;background:var(--warn)"><span style="color:var(--warn)">flood starts 10s</span></div>
-        <div class="mk" id="detmk" style="left:55%;background:var(--crit)"><span style="color:var(--crit)">detect 11.0s</span></div>
+        <div class="mk" id="mkAttack" style="background:var(--warn)"><span style="color:var(--warn)">flood 10s</span></div>
         <div class="head" id="thead" style="left:0%"></div>
       </div>
     </div>
   </div>
 
   <div class="grid">
-    <!-- LEFT: topology -->
-    <div class="card topo-card">
-      <div class="ch"><h3>Network topology</h3><span class="badge" id="topobadge">data plane</span></div>
-      <div class="body"><canvas id="topo" aria-label="Animated network topology"></canvas></div>
-      <div class="status-strip">
-        <span class="pill ok" id="status"><span class="pdot"></span><span id="statustext">Normal</span></span>
-        <span class="phase-note" id="phase">Legitimate clients streaming UDP to the server through the OpenFlow switch.</span>
+    <div class="col">
+      <div class="card">
+        <div class="ch"><h3>Network topology</h3><span class="badge" id="topobadge">data plane</span></div>
+        <canvas id="topo" aria-label="Network topology"></canvas>
+        <div class="status-strip">
+          <span class="pill ok" id="status"><span class="pdot"></span><span id="statustext">Normal</span></span>
+          <span class="phase-note" id="phase">Legitimate clients streaming to the server through the OpenFlow switch.</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ch"><h3>Source entropy &amp; concentration</h3><span class="badge">flood collapses entropy</span></div>
+        <canvas id="entropy" class="chart" aria-label="Entropy chart"></canvas>
+        <div class="legend">
+          <span><i style="background:var(--switch)"></i>source entropy (bits)</span>
+          <span><i style="background:var(--attacker)"></i>top-talker share %</span>
+        </div>
       </div>
     </div>
 
-    <!-- RIGHT -->
     <div class="col">
       <div class="tiles">
-        <div class="tile" id="tile-atk"><div class="k">Attacker rate · port 4</div><div class="v"><span id="m-atk">0</span> <span class="u">pps</span></div></div>
-        <div class="tile"><div class="k">Detection threshold</div><div class="v">1,000 <span class="u">pps</span></div></div>
-        <div class="tile"><div class="k">Legit delivery (est.)</div><div class="v"><span id="m-deliv">100</span><span class="u">%</span></div></div>
-        <div class="tile"><div class="k">Dropped by rule</div><div class="v"><span id="m-drop">0</span></div></div>
+        <div class="tile" id="tile-src"><div class="k">flagged sources</div><div class="v"><span id="m-flag">0</span><span class="u"> / <span id="m-total">0</span></span></div></div>
+        <div class="tile"><div class="k">adaptive threshold</div><div class="v"><span id="m-thr">—</span> <span class="u">pps</span></div></div>
+        <div class="tile"><div class="k">legit delivery</div><div class="v"><span id="m-legit">100</span><span class="u">%</span></div></div>
+        <div class="tile"><div class="k">blacklisted</div><div class="v"><span id="m-black">0</span></div></div>
       </div>
 
       <div class="card">
-        <div class="ch"><h3>Per-port packet rate</h3><span class="badge">OFPMP_PORT_STATS · log scale</span></div>
-        <canvas id="chart" aria-label="Packet rate over time chart"></canvas>
+        <div class="ch"><h3>Per-source packet rate</h3><span class="badge">flow-stats · log scale</span></div>
+        <canvas id="rate" class="chart" aria-label="Per-source rate chart"></canvas>
         <div class="legend">
-          <span><i style="background:var(--client)"></i>legit clients</span>
-          <span><i style="background:var(--attacker)"></i>attacker (port 4)</span>
-          <span><i style="background:var(--warn)"></i>threshold 1000</span>
+          <span><i style="background:var(--client)"></i>legit</span>
+          <span><i style="background:var(--attacker)"></i>attackers</span>
+          <span><i style="background:var(--accent)"></i>threshold</span>
         </div>
       </div>
 
       <div class="card">
-        <div class="ch"><h3>Switch flow table</h3><span class="badge" id="flowbadge">4 rules</span></div>
+        <div class="ch"><h3>Source reputation</h3><span class="badge">offenses · state</span></div>
+        <div class="rep" id="rep"></div>
+      </div>
+
+      <div class="card">
+        <div class="ch"><h3>Switch flow table</h3><span class="badge" id="flowbadge">rules</span></div>
         <div class="flows" id="flows"></div>
       </div>
 
       <div class="card">
-        <div class="ch"><h3>Controller log</h3><span class="badge">dpctl / detections.csv</span></div>
+        <div class="ch"><h3>Controller log</h3><span class="badge">detections.csv</span></div>
         <div class="log" id="log"></div>
-      </div>
-
-      <div class="card">
-        <div class="ch"><h3>Outcome · ns-3 FlowMonitor</h3><span class="badge">whole-run delivery</span></div>
-        <div class="outcome">
-          <div class="ob att" id="ob-att"><div class="obh"><span>Attack, no mitigation</span><span class="r">53.1%</span></div><div class="bar"><i style="width:53.1%"></i></div></div>
-          <div class="ob mit" id="ob-mit"><div class="obh"><span>Attack + controller mitigation</span><span class="r">94.8%</span></div><div class="bar"><i style="width:94.8%"></i></div></div>
-          <div class="foot">Legitimate-client packet delivery to the server, measured across the full 20 s run. Attacker reaching server: <b id="o-att-atk">26.0%</b> → <b id="o-mit-atk">2.9%</b> once the DROP rule is installed.</div>
-        </div>
       </div>
     </div>
   </div>
 
+  <div class="card" style="margin-bottom:28px">
+    <div class="ch"><h3>Outcome · ns-3 FlowMonitor (whole run)</h3><span class="badge" id="outbadge">advanced controller</span></div>
+    <div class="outcome" id="outcome"></div>
+  </div>
+
   <div class="how">
     <div class="card">
-      <h2>How the controller stops the flood</h2>
+      <h2>What the advanced controller does</h2>
       <div class="steps">
-        <div class="step"><b>Learn &amp; forward.</b> Packet-in messages teach the controller which MAC sits on which port; it installs <code>prio 100</code> forwarding flows.</div>
-        <div class="step"><b>Poll port stats.</b> Every 1 s the controller reads OpenFlow per-port counters — one port per host, so a port rate is a per-source rate.</div>
-        <div class="step"><b>Detect.</b> Any port above <code>1000 pps</code> is flagged. Port 4 hits <code>39,062 pps</code> and trips at t = 11.0 s.</div>
-        <div class="step"><b>Mitigate.</b> A <code>prio 200 in_port=4 → DROP</code> flow-mod blocks the attacker at the switch; legit traffic reaches the server again.</div>
+        <div class="step"><b>Per-source stats.</b> Polls OpenFlow <code>flow-stats</code> and sums by <code>eth_src</code>, so it measures each host even when several share one switch port.</div>
+        <div class="step"><b>Multi-signal + adaptive.</b> Flags a source only when its rate beats an adaptive baseline threshold <em>and</em> its packets are small (floods use tiny packets).</div>
+        <div class="step"><b>Two-stage block.</b> Coarse <code>in_port</code> DROP first, then a surgical <code>ip_src</code> DROP — freeing the innocent client sharing the attacker's port.</div>
+        <div class="step"><b>Penalties.</b> Each offense is held down longer (5s→20s→…); after 3 strikes the source is permanently <code>BLACKLISTED</code>.</div>
       </div>
     </div>
   </div>
 
   <p class="foottext">
-    Every rate, timestamp and delivery figure above is replayed from real output of the ns-3 / OFSwitch13 project
-    (<code>monitor-stats.csv</code>, <code>detections.csv</code>, <code>flowmon.xml</code>). Regenerate it with
-    <code>./ns3 run ddos-mitigated</code> and <code>./ns3 run ddos-attack</code>. The moving packets are a visualization of the measured flows, not a packet-by-packet trace.
+    Every rate, event and delivery figure is replayed from real ns-3 / OFSwitch13 output
+    (<code>monitor-stats.csv</code>, <code>detections.csv</code>, <code>metrics.csv</code>, <code>flowmon.xml</code>) of the
+    <code>ddos-advanced</code> experiment. Rebuild it with <code>python3 scripts/analysis/build_dashboard.py</code>.
+    Rate-limiting via OpenFlow meters (instead of an outright drop) is documented future scope.
   </p>
 </div>
 
 <script>
-/* ===== real ns-3 data (embedded) ===== */
-const DATA = {"meta":{"server":"10.1.1.5","clients":["10.1.1.1","10.1.1.2","10.1.1.3"],"attacker":"10.1.1.4","threshold":1000,"attackStart":10,"simTime":20,"ports":{"1":"client","2":"client","3":"client","4":"attacker","5":"server"}},"attack":{"ts":{"1":{"1":0,"2":0,"3":0,"4":0,"5":0},"2":{"1":123,"2":111,"3":99,"4":0,"5":3},"3":{"1":122,"2":122,"3":122,"4":0,"5":0},"4":{"1":122,"2":122,"3":122,"4":0,"5":0},"5":{"1":122,"2":122,"3":122,"4":0,"5":0},"6":{"1":122,"2":122,"3":122,"4":0,"5":0},"7":{"1":122,"2":122,"3":122,"4":0,"5":0},"8":{"1":122,"2":122,"3":122,"4":0,"5":0},"9":{"1":122,"2":122,"3":122,"4":0,"5":0},"10":{"1":122,"2":122,"3":122,"4":111,"5":1},"11":{"1":123,"2":122,"3":122,"4":39062,"5":0},"12":{"1":122,"2":122,"3":122,"4":39063,"5":0},"13":{"1":122,"2":122,"3":122,"4":39062,"5":0},"14":{"1":122,"2":123,"3":122,"4":39063,"5":0},"15":{"1":122,"2":122,"3":122,"4":39062,"5":0},"16":{"1":122,"2":122,"3":122,"4":39063,"5":0},"17":{"1":122,"2":122,"3":123,"4":39062,"5":0},"18":{"1":122,"2":122,"3":122,"4":39063,"5":0},"19":{"1":122,"2":122,"3":121,"4":38945,"5":0}},"detections":[{"t":11.003,"port":4,"mac":"00:00:00:00:00:07","pps":39062,"thr":1000,"event":"DETECTED"}],"flow":{"legitDeliv":53.1,"atkDeliv":26.0}},"mitigated":{"ts":{"1":{"1":0,"2":0,"3":0,"4":0,"5":0},"2":{"1":123,"2":111,"3":99,"4":0,"5":3},"3":{"1":122,"2":122,"3":122,"4":0,"5":0},"4":{"1":122,"2":122,"3":122,"4":0,"5":0},"5":{"1":122,"2":122,"3":122,"4":0,"5":0},"6":{"1":122,"2":122,"3":122,"4":0,"5":0},"7":{"1":122,"2":122,"3":122,"4":0,"5":0},"8":{"1":122,"2":122,"3":122,"4":0,"5":0},"9":{"1":122,"2":122,"3":122,"4":0,"5":0},"10":{"1":122,"2":122,"3":122,"4":111,"5":1},"11":{"1":123,"2":122,"3":122,"4":39062,"5":0},"12":{"1":122,"2":122,"3":122,"4":39063,"5":0},"13":{"1":122,"2":122,"3":122,"4":39062,"5":0},"14":{"1":122,"2":123,"3":122,"4":39063,"5":0},"15":{"1":122,"2":122,"3":122,"4":39062,"5":0},"16":{"1":122,"2":122,"3":122,"4":39063,"5":0},"17":{"1":122,"2":122,"3":123,"4":39062,"5":0},"18":{"1":122,"2":122,"3":122,"4":39063,"5":0},"19":{"1":122,"2":122,"3":121,"4":38945,"5":0}},"detections":[{"t":11.003,"port":4,"mac":"00:00:00:00:00:07","pps":39062,"thr":1000,"event":"DETECTED_AND_BLOCKED"}],"flow":{"legitDeliv":94.8,"atkDeliv":2.9}}};
-const SIM=DATA.meta.simTime, THR=DATA.meta.threshold, ATK_START=DATA.meta.attackStart;
-const DET_T=DATA.mitigated.detections[0].t;
+/* ===== real ns-3 data (embedded; rebuilt by scripts/analysis/build_dashboard.py) ===== */
+const DATA = {"meta":{"simTime":45,"attackStart":10,"monitorInterval":1,"smallPacketBytes":256,"serverIp":"10.1.1.8"},"mitigated":{"sources":[{"mac":"00:00:00:00:00:01","ip":"10.1.1.1","port":1,"role":"client","shared":false,"rate":[0,0,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL"]},{"mac":"00:00:00:00:00:03","ip":"10.1.1.2","port":2,"role":"client","shared":false,"rate":[0,0,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,121],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL"]},{"mac":"00:00:00:00:00:05","ip":"10.1.1.3","port":3,"role":"client","shared":false,"rate":[0,0,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,121],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL"]},{"mac":"00:00:00:00:00:07","ip":"10.1.1.4","port":4,"role":"client","shared":false,"rate":[0,0,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,121],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL"]},{"mac":"00:00:00:00:00:09","ip":"10.1.1.5","port":5,"role":"client","shared":false,"rate":[0,0,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,122],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL"]},{"mac":"00:00:00:00:00:13","ip":"10.1.1.10","port":9,"role":"innocent","shared":true,"rate":[0,0,122,123,122,122,122,122,122,122,122,61,122,122,122,122,122,122,61,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,61,122,122,121],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL"]},{"mac":"00:00:00:00:00:0b","ip":"10.1.1.6","port":6,"role":"attacker","shared":false,"rate":[0,0,0,0,0,0,0,0,0,0,0,39064,0,0,0,0,0,0,39062,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,39062,0,0,0],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","WATCH","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","WATCH","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED"]},{"mac":"00:00:00:00:00:0d","ip":"10.1.1.7","port":7,"role":"attacker","shared":false,"rate":[0,0,0,0,0,0,0,0,0,0,39061,1,0,0,0,0,0,39063,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,39063,0,0,0,0],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","WATCH","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","WATCH","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED"]},{"mac":"00:00:00:00:00:12","ip":"10.1.1.9","port":9,"role":"attacker","shared":true,"rate":[0,0,0,0,0,0,0,0,0,0,39061,1,0,0,0,0,0,39062,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,39063,0,0,0,0],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","WATCH","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","BLOCKED","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","WATCH","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED"]},{"mac":"00:00:00:00:00:0f","ip":"10.1.1.8","port":8,"role":"server","shared":false,"rate":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL"]}],"metrics":{"t":[1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0,11.0,12.0,13.0,14.0,15.0,16.0,17.0,18.0,19.0,20.0,21.0,22.0,23.0,24.0,25.0,26.0,27.0,28.0,29.0,30.0,31.0,32.0,33.0,34.0,35.0,36.0,37.0,38.0,39.0,40.0,41.0,42.0,43.0,44.0],"entropy":[0.0,0.0,2.585,2.585,2.585,2.585,2.585,2.585,2.585,2.585,1.091,0.167,2.585,2.585,2.585,2.585,2.585,1.091,0.167,2.585,2.585,2.585,2.585,2.585,2.585,2.585,2.585,2.585,2.585,2.585,2.585,2.585,2.585,2.585,2.585,2.585,2.585,2.585,2.585,1.091,0.167,2.585,2.585,2.585],"topPct":[0.0,0.0,16.7,16.8,16.7,16.7,16.8,16.7,16.7,16.8,49.5,98.3,16.8,16.7,16.7,16.8,16.7,49.5,98.3,16.7,16.8,16.7,16.7,16.8,16.7,16.7,16.8,16.7,16.7,16.8,16.7,16.8,16.8,16.7,16.8,16.7,16.7,16.8,16.7,49.5,98.3,16.7,16.7,16.8],"threshold":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0]},"events":[{"t":11.007,"mac":"00:00:00:00:00:0d","ip":"10.1.1.7","port":7,"pps":39061,"off":1,"event":"DETECTED"},{"t":11.007,"mac":"00:00:00:00:00:0d","ip":"10.1.1.7","port":7,"pps":39061,"off":1,"event":"BLOCKED_PORT"},{"t":11.007,"mac":"00:00:00:00:00:12","ip":"10.1.1.9","port":9,"pps":39061,"off":1,"event":"DETECTED"},{"t":11.007,"mac":"00:00:00:00:00:12","ip":"10.1.1.9","port":9,"pps":39061,"off":1,"event":"BLOCKED_PORT"},{"t":11.507,"mac":"00:00:00:00:00:0d","ip":"10.1.1.7","port":7,"pps":0,"off":1,"event":"ISOLATED_IP"},{"t":11.507,"mac":"00:00:00:00:00:12","ip":"10.1.1.9","port":9,"pps":0,"off":1,"event":"ISOLATED_IP"},{"t":12.007,"mac":"00:00:00:00:00:0b","ip":"10.1.1.6","port":6,"pps":39064,"off":1,"event":"DETECTED"},{"t":12.007,"mac":"00:00:00:00:00:0b","ip":"10.1.1.6","port":6,"pps":39064,"off":1,"event":"BLOCKED_PORT"},{"t":12.507,"mac":"00:00:00:00:00:0b","ip":"10.1.1.6","port":6,"pps":0,"off":1,"event":"ISOLATED_IP"},{"t":16.007,"mac":"00:00:00:00:00:0d","ip":"10.1.1.7","port":7,"pps":0,"off":1,"event":"UNBLOCKED"},{"t":16.007,"mac":"00:00:00:00:00:12","ip":"10.1.1.9","port":9,"pps":0,"off":1,"event":"UNBLOCKED"},{"t":17.007,"mac":"00:00:00:00:00:0b","ip":"10.1.1.6","port":6,"pps":0,"off":1,"event":"UNBLOCKED"},{"t":18.007,"mac":"00:00:00:00:00:0d","ip":"10.1.1.7","port":7,"pps":39063,"off":2,"event":"DETECTED"},{"t":18.007,"mac":"00:00:00:00:00:0d","ip":"10.1.1.7","port":7,"pps":39063,"off":2,"event":"BLOCKED_PORT"},{"t":18.007,"mac":"00:00:00:00:00:12","ip":"10.1.1.9","port":9,"pps":39062,"off":2,"event":"DETECTED"},{"t":18.007,"mac":"00:00:00:00:00:12","ip":"10.1.1.9","port":9,"pps":39062,"off":2,"event":"BLOCKED_PORT"},{"t":18.507,"mac":"00:00:00:00:00:0d","ip":"10.1.1.7","port":7,"pps":0,"off":2,"event":"ISOLATED_IP"},{"t":18.507,"mac":"00:00:00:00:00:12","ip":"10.1.1.9","port":9,"pps":0,"off":2,"event":"ISOLATED_IP"},{"t":19.007,"mac":"00:00:00:00:00:0b","ip":"10.1.1.6","port":6,"pps":39062,"off":2,"event":"DETECTED"},{"t":19.007,"mac":"00:00:00:00:00:0b","ip":"10.1.1.6","port":6,"pps":39062,"off":2,"event":"BLOCKED_PORT"},{"t":19.507,"mac":"00:00:00:00:00:0b","ip":"10.1.1.6","port":6,"pps":0,"off":2,"event":"ISOLATED_IP"},{"t":38.007,"mac":"00:00:00:00:00:0d","ip":"10.1.1.7","port":7,"pps":0,"off":2,"event":"UNBLOCKED"},{"t":38.007,"mac":"00:00:00:00:00:12","ip":"10.1.1.9","port":9,"pps":0,"off":2,"event":"UNBLOCKED"},{"t":39.007,"mac":"00:00:00:00:00:0b","ip":"10.1.1.6","port":6,"pps":0,"off":2,"event":"UNBLOCKED"},{"t":40.007,"mac":"00:00:00:00:00:0d","ip":"10.1.1.7","port":7,"pps":39063,"off":3,"event":"DETECTED"},{"t":40.007,"mac":"00:00:00:00:00:0d","ip":"10.1.1.7","port":7,"pps":39063,"off":3,"event":"BLOCKED_PORT"},{"t":40.007,"mac":"00:00:00:00:00:0d","ip":"10.1.1.7","port":7,"pps":39063,"off":3,"event":"BLACKLISTED"},{"t":40.007,"mac":"00:00:00:00:00:12","ip":"10.1.1.9","port":9,"pps":39063,"off":3,"event":"DETECTED"},{"t":40.007,"mac":"00:00:00:00:00:12","ip":"10.1.1.9","port":9,"pps":39063,"off":3,"event":"BLOCKED_PORT"},{"t":40.007,"mac":"00:00:00:00:00:12","ip":"10.1.1.9","port":9,"pps":39063,"off":3,"event":"BLACKLISTED"},{"t":40.507,"mac":"00:00:00:00:00:0d","ip":"10.1.1.7","port":7,"pps":0,"off":3,"event":"ISOLATED_IP"},{"t":40.507,"mac":"00:00:00:00:00:12","ip":"10.1.1.9","port":9,"pps":0,"off":3,"event":"ISOLATED_IP"},{"t":41.007,"mac":"00:00:00:00:00:0b","ip":"10.1.1.6","port":6,"pps":39062,"off":3,"event":"DETECTED"},{"t":41.007,"mac":"00:00:00:00:00:0b","ip":"10.1.1.6","port":6,"pps":39062,"off":3,"event":"BLOCKED_PORT"},{"t":41.007,"mac":"00:00:00:00:00:0b","ip":"10.1.1.6","port":6,"pps":39062,"off":3,"event":"BLACKLISTED"},{"t":41.507,"mac":"00:00:00:00:00:0b","ip":"10.1.1.6","port":6,"pps":0,"off":3,"event":"ISOLATED_IP"}],"flow":{"legitDeliv":83.5,"innocentDeliv":83.4,"attackerDeliv":2.0,"bySrc":{"10.1.1.1":83.6,"10.1.1.2":82.9,"10.1.1.3":83.7,"10.1.1.4":83.8,"10.1.1.5":83.6,"10.1.1.10":83.4,"10.1.1.6":4.4,"10.1.1.7":1.5,"10.1.1.9":0.0,"10.1.1.8":0}}},"attack":{"sources":[{"mac":"00:00:00:00:00:01","ip":"10.1.1.1","port":1,"role":"client","shared":false,"rate":[0,0,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL"]},{"mac":"00:00:00:00:00:03","ip":"10.1.1.2","port":2,"role":"client","shared":false,"rate":[0,0,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,121],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL"]},{"mac":"00:00:00:00:00:05","ip":"10.1.1.3","port":3,"role":"client","shared":false,"rate":[0,0,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,121],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL"]},{"mac":"00:00:00:00:00:07","ip":"10.1.1.4","port":4,"role":"client","shared":false,"rate":[0,0,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,121],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL"]},{"mac":"00:00:00:00:00:09","ip":"10.1.1.5","port":5,"role":"client","shared":false,"rate":[0,0,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,122],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL"]},{"mac":"00:00:00:00:00:13","ip":"10.1.1.10","port":9,"role":"innocent","shared":true,"rate":[0,0,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,122,122,122,123,122,122,122,122,122,122,122,122,122,122,121],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL"]},{"mac":"00:00:00:00:00:0b","ip":"10.1.1.6","port":6,"role":"attacker","shared":false,"rate":[0,0,0,0,0,0,0,0,0,0,0,39064,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,38792],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED"]},{"mac":"00:00:00:00:00:0d","ip":"10.1.1.7","port":7,"role":"attacker","shared":false,"rate":[0,0,0,0,0,0,0,0,0,0,39061,39064,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,38792],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED"]},{"mac":"00:00:00:00:00:12","ip":"10.1.1.9","port":9,"role":"attacker","shared":true,"rate":[0,0,0,0,0,0,0,0,0,0,39061,39064,39062,39063,39062,39063,39062,39062,39063,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,39063,39062,38792],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED","BLACKLISTED"]},{"mac":"00:00:00:00:00:0f","ip":"10.1.1.8","port":8,"role":"server","shared":false,"rate":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"state":["NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL","NORMAL"]}],"metrics":{"t":[1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0,11.0,12.0,13.0,14.0,15.0,16.0,17.0,18.0,19.0,20.0,21.0,22.0,23.0,24.0,25.0,26.0,27.0,28.0,29.0,30.0,31.0,32.0,33.0,34.0,35.0,36.0,37.0,38.0,39.0,40.0,41.0,42.0,43.0,44.0],"entropy":[0.0,0.0,2.585,2.585,2.585,2.585,2.585,2.585,2.585,2.585,1.091,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646,1.646],"topPct":[0.0,0.0,16.7,16.8,16.7,16.7,16.8,16.7,16.7,16.8,49.5,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1,33.1],"threshold":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0,615.0]},"events":[{"t":11.007,"mac":"00:00:00:00:00:0d","ip":"10.1.1.7","port":7,"pps":39061,"off":1,"event":"DETECTED"},{"t":11.007,"mac":"00:00:00:00:00:12","ip":"10.1.1.9","port":9,"pps":39061,"off":1,"event":"DETECTED"},{"t":12.007,"mac":"00:00:00:00:00:0b","ip":"10.1.1.6","port":6,"pps":39064,"off":1,"event":"DETECTED"},{"t":12.007,"mac":"00:00:00:00:00:0d","ip":"10.1.1.7","port":7,"pps":39064,"off":2,"event":"DETECTED"},{"t":12.007,"mac":"00:00:00:00:00:12","ip":"10.1.1.9","port":9,"pps":39064,"off":2,"event":"DETECTED"},{"t":13.007,"mac":"00:00:00:00:00:0b","ip":"10.1.1.6","port":6,"pps":39062,"off":2,"event":"DETECTED"},{"t":13.007,"mac":"00:00:00:00:00:0d","ip":"10.1.1.7","port":7,"pps":39062,"off":3,"event":"DETECTED"},{"t":13.007,"mac":"00:00:00:00:00:12","ip":"10.1.1.9","port":9,"pps":39062,"off":3,"event":"DETECTED"},{"t":14.007,"mac":"00:00:00:00:00:0b","ip":"10.1.1.6","port":6,"pps":39063,"off":3,"event":"DETECTED"}],"flow":{"legitDeliv":30.4,"innocentDeliv":32.4,"attackerDeliv":8.4,"bySrc":{"10.1.1.1":31.4,"10.1.1.2":28.1,"10.1.1.3":30.5,"10.1.1.4":29.3,"10.1.1.5":30.6,"10.1.1.10":32.4,"10.1.1.6":25.0,"10.1.1.7":0.0,"10.1.1.9":0.2,"10.1.1.8":0}}}};
+/* ===== */
 
-/* ===== palette from CSS vars ===== */
-let P={};
+const META = DATA.meta || {simTime:45, attackStart:10};
+const SIM = META.simTime || 45;
+document.getElementById('simlen').textContent = SIM;
+document.getElementById('track').setAttribute('aria-valuemax', SIM);
+
+let mitigation = true, speed = 2, t = 0, playing = false, last = 0;
+const reduce = matchMedia('(prefers-reduced-motion:reduce)').matches;
+function cur(){ return mitigation ? DATA.mitigated : DATA.attack; }
+
+/* palette */
+let P = {};
 function palette(){
-  const c=getComputedStyle(document.documentElement);
-  const g=n=>c.getPropertyValue(n).trim();
-  P={bg:g('--bg'),panel:g('--panel'),inset:g('--inset'),fg:g('--fg'),muted:g('--muted'),faint:g('--faint'),
-     line:g('--line'),accent:g('--accent'),client:g('--client'),attacker:g('--attacker'),
-     server:g('--server'),switch:g('--switch'),ok:g('--ok'),warn:g('--warn'),crit:g('--crit')};
+  const c = getComputedStyle(document.documentElement), g = n => c.getPropertyValue(n).trim();
+  P = {bg:g('--bg'),panel:g('--panel'),inset:g('--inset'),fg:g('--fg'),muted:g('--muted'),faint:g('--faint'),
+       line:g('--line'),accent:g('--accent'),client:g('--client'),attacker:g('--attacker'),server:g('--server'),
+       switch:g('--switch'),warn:g('--warn'),crit:g('--crit'),black:g('--blacklist')};
 }
 palette();
-matchMedia('(prefers-color-scheme:dark)').addEventListener('change',palette);
-new MutationObserver(palette).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
 
-/* ===== interpolate per-port pps at sim time t ===== */
-function rateAt(ts,port,t){
-  if(t<=1) return 0;
-  if(t>=19) return ts["19"][port];
-  const lo=Math.floor(t), hi=lo+1, f=t-lo;
-  const a=(ts[lo]&&ts[lo][port])||0, b=(ts[hi]&&ts[hi][port])||0;
-  return a+(b-a)*f;
+/* data helpers */
+const idxAt = tt => Math.max(0, Math.min(SIM-2, Math.floor(tt)-1));
+function rateOf(s, tt){ return s.rate ? (s.rate[idxAt(tt)]||0) : 0; }
+function stateOf(s, tt){ return s.state ? (s.state[idxAt(tt)]||'NORMAL') : 'NORMAL'; }
+function metricAt(tt){
+  const m = cur().metrics; if(!m||!m.t.length) return {entropy:0,topPct:0,threshold:0};
+  let i = 0; while(i<m.t.length-1 && m.t[i+1]<=tt) i++;
+  return {entropy:m.entropy[i], topPct:m.topPct[i], threshold:m.threshold[i]};
 }
-const clientRate=(set,t)=>(rateAt(set.ts,"1",t)+rateAt(set.ts,"2",t)+rateAt(set.ts,"3",t))/3;
+function eventsUpto(tt){ return cur().events.filter(e => e.t <= tt + 1e-6); }
+function roleColor(r){ return r==='attacker'?P.attacker : r==='server'?P.server : r==='switch'?P.switch : P.client; }
 
-/* ===== state ===== */
-let t=0, playing=false, speed=2, last=0, mitigation=true, dropCount=0, deliv=100;
-let detected=false, blocked=false, prevT=0;
-const logSeen=new Set();
-let flowDropAdded=false;
-const reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
-
-function curSet(){return mitigation?DATA.mitigated:DATA.attack;}
-
-/* ===== topology geometry & packets ===== */
-const topo=document.getElementById('topo'), tctx=topo.getContext('2d');
-let TW=0,TH=0,nodes={},links={};
+/* ===== topology ===== */
+const topo = document.getElementById('topo'), tx = topo.getContext('2d');
+let TW=0, TH=0, nodePos={}, sw={}, srv={}, ctl={}, sharedJ=null, packets=[], spawnAcc={};
 function layoutTopo(){
-  const r=topo.getBoundingClientRect(), dpr=Math.min(devicePixelRatio||1,2);
-  TW=r.width; TH=r.height;
-  topo.width=Math.round(TW*dpr); topo.height=Math.round(TH*dpr);
-  tctx.setTransform(dpr,0,0,dpr,0,0);
-  const hx=TW*0.145, sx=TW*0.5, vx=TW*0.845;
-  nodes={
-    c0:{x:hx,y:TH*0.17,role:'client',port:"1",label:'Client .1'},
-    c1:{x:hx,y:TH*0.33,role:'client',port:"2",label:'Client .2'},
-    c2:{x:hx,y:TH*0.49,role:'client',port:"3",label:'Client .3'},
-    atk:{x:hx,y:TH*0.82,role:'attacker',port:"4",label:'Attacker .4'},
-    sw:{x:sx,y:TH*0.5,role:'switch',label:'OpenFlow switch'},
-    srv:{x:vx,y:TH*0.5,role:'server',port:"5",label:'Server .5'},
-    ctl:{x:sx,y:TH*0.135,role:'ctl',label:'SDN controller'}
-  };
-}
-let packets=[], spawnAcc={c0:0,c1:0,c2:0,atk:0};
-function visualRate(pps){ if(pps<=0)return 0; return pps<1500? pps/34 : Math.min(58, 42+(pps-1500)/3400); }
-
-function spawnPackets(dt){
-  const set=curSet();
-  const map={c0:"1",c1:"2",c2:"3",atk:"4"};
-  for(const k in map){
-    const pps=rateAt(set.ts,map[k],t);
-    const vr=visualRate(pps)*(reduce?0.5:1);
-    spawnAcc[k]+=vr*dt;
-    while(spawnAcc[k]>=1 && packets.length<520){
-      spawnAcc[k]-=1;
-      packets.push({src:k,role:nodes[k].role,seg:0,u:0,dropAt:-1,alpha:1,
-        sp0:1/(0.42+Math.random()*0.12), sp1:1/(0.40+Math.random()*0.12)});
-    }
-  }
-}
-function congested(){ // bottleneck swamped: attack on, packets still forwarded to server
-  const atk=rateAt(curSet().ts,"4",t);
-  return atk>THR && !blocked;
-}
-function updatePackets(dt){
-  const cong=congested(), blk=blocked;
-  for(const p of packets){
-    if(p.dropAt>=0){ p.alpha-=dt*4.5; continue; }
-    if(p.seg===0){
-      p.u+=p.sp0*dt;
-      if(p.u>=1){ // reached switch
-        if(p.role==='attacker' && blk){ p.dropAt=0; p.alpha=1; p.dx=nodes.sw.x; p.dy=nodes.sw.y; continue; }
-        if(cong){ // bottleneck loss
-          const loss = p.role==='attacker'?0.74:0.5;
-          if(Math.random()<loss){ p.dropAt=0; p.alpha=1; p.dx=nodes.sw.x; p.dy=nodes.sw.y; continue; }
-        }
-        p.seg=1; p.u=0;
-      }
-    } else {
-      p.u+=p.sp1*dt;
-      if(p.u>=1){ p.dropAt=-2; } // delivered
-    }
-  }
-  packets=packets.filter(p=>p.dropAt!==-2 && p.alpha>0);
-}
-
-function nodeColor(role){return role==='client'?P.client:role==='attacker'?P.attacker:role==='server'?P.server:role==='switch'?P.switch:P.accent;}
-function lerp(a,b,u){return a+(b-a)*u;}
-function packetPos(p){
-  const s=nodes[p.src], sw=nodes.sw, sv=nodes.srv;
-  if(p.dropAt>=0) return {x:p.dx,y:p.dy};
-  if(p.seg===0) return {x:lerp(s.x,sw.x,p.u),y:lerp(s.y,sw.y,p.u)};
-  return {x:lerp(sw.x,sv.x,p.u),y:lerp(sw.y,sv.y,p.u)};
-}
-function drawNode(n,r,fill,active){
-  tctx.beginPath(); tctx.arc(n.x,n.y,r,0,7);
-  tctx.fillStyle=P.panel; tctx.fill();
-  tctx.lineWidth=active?3:2; tctx.strokeStyle=fill; tctx.stroke();
-  tctx.fillStyle=fill;
-  tctx.beginPath(); tctx.arc(n.x,n.y,r*0.46,0,7); tctx.fill();
-}
-function roundRect(x,y,w,h,r){tctx.beginPath();tctx.moveTo(x+r,y);tctx.arcTo(x+w,y,x+w,y+h,r);tctx.arcTo(x+w,y+h,x,y+h,r);tctx.arcTo(x,y+h,x,y,r);tctx.arcTo(x,y,x+w,y,r);tctx.closePath();}
-function drawTopo(){
-  tctx.clearRect(0,0,TW,TH);
-  const cong=congested(), blk=blocked;
-  // links host->switch
-  for(const k of ['c0','c1','c2','atk']){
-    const n=nodes[k];
-    tctx.beginPath(); tctx.moveTo(n.x,n.y); tctx.lineTo(nodes.sw.x,nodes.sw.y);
-    tctx.lineWidth=k==='atk'?(rateAt(curSet().ts,"4",t)>THR?4:1.6):1.4;
-    tctx.strokeStyle=k==='atk'&&rateAt(curSet().ts,"4",t)>THR?P.attacker:P.line;
-    tctx.globalAlpha=k==='atk'&&rateAt(curSet().ts,"4",t)>THR?0.5:0.8; tctx.stroke(); tctx.globalAlpha=1;
-  }
-  // bottleneck switch->server
-  tctx.beginPath(); tctx.moveTo(nodes.sw.x,nodes.sw.y); tctx.lineTo(nodes.srv.x,nodes.srv.y);
-  tctx.lineWidth=cong?6:3.2; tctx.strokeStyle=cong?P.crit:(blk?P.ok:P.line); tctx.globalAlpha=cong?0.55:0.7; tctx.stroke(); tctx.globalAlpha=1;
-  // bottleneck label
-  tctx.font='600 10px '+'"IBM Plex Mono",monospace'; tctx.textAlign='center';
-  tctx.fillStyle=cong?P.crit:P.faint;
-  tctx.fillText(cong?'10 Mbps · SATURATED':'10 Mbps link',(nodes.sw.x+nodes.srv.x)/2,nodes.sw.y-13);
-  // controller dashed link
-  tctx.setLineDash([4,4]); tctx.beginPath(); tctx.moveTo(nodes.ctl.x,nodes.ctl.y+16); tctx.lineTo(nodes.sw.x,nodes.sw.y-20);
-  tctx.lineWidth=1.6; tctx.strokeStyle=P.accent; tctx.globalAlpha=.6; tctx.stroke(); tctx.setLineDash([]); tctx.globalAlpha=1;
-  tctx.font='9px "IBM Plex Mono",monospace'; tctx.fillStyle=P.faint; tctx.textAlign='left';
-  tctx.fillText('OpenFlow',nodes.ctl.x+8,(nodes.ctl.y+nodes.sw.y)/2);
-
-  // packets
-  for(const p of packets){
-    const pos=packetPos(p), col=p.role==='attacker'?P.attacker:P.client;
-    tctx.globalAlpha=Math.max(0,p.alpha);
-    if(p.dropAt>=0){ // dropped mark
-      const s=3.2; tctx.strokeStyle=blk&&p.role==='attacker'?P.accent:P.crit; tctx.lineWidth=1.6;
-      tctx.beginPath(); tctx.moveTo(pos.x-s,pos.y-s);tctx.lineTo(pos.x+s,pos.y+s);tctx.moveTo(pos.x+s,pos.y-s);tctx.lineTo(pos.x-s,pos.y+s); tctx.stroke();
-    } else {
-      tctx.beginPath(); tctx.arc(pos.x,pos.y,p.role==='attacker'?2.6:2.9,0,7); tctx.fillStyle=col; tctx.fill();
-    }
-    tctx.globalAlpha=1;
-  }
-
-  // DROP shield on attacker path near switch
-  if(blk){
-    const a=nodes.atk, s=nodes.sw, mx=lerp(a.x,s.x,0.72), my=lerp(a.y,s.y,0.72);
-    const pulse=reduce?1:(1+0.12*Math.sin(performance.now()/180));
-    tctx.save(); tctx.translate(mx,my);
-    tctx.beginPath(); tctx.arc(0,0,13*pulse,0,7);
-    tctx.fillStyle=P.accent; tctx.globalAlpha=.16; tctx.fill(); tctx.globalAlpha=1;
-    tctx.lineWidth=2.2; tctx.strokeStyle=P.accent; tctx.stroke();
-    tctx.fillStyle=P.accent; tctx.font='700 11px "IBM Plex Sans",sans-serif'; tctx.textAlign='center'; tctx.textBaseline='middle';
-    tctx.fillText('✕',0,0.5); tctx.restore();
-  }
-
-  // nodes
-  const atkHot=rateAt(curSet().ts,"4",t)>THR;
-  drawNode(nodes.sw,16,P.switch,true);
-  drawNode(nodes.srv,15,P.server,true);
-  for(const k of ['c0','c1','c2']) drawNode(nodes[k],9,P.client,false);
-  drawNode(nodes.atk,11,P.attacker,atkHot);
-  // controller box
-  const c=nodes.ctl; roundRect(c.x-19,c.y-13,38,26,7); tctx.fillStyle=P.panel; tctx.fill();
-  tctx.lineWidth=detected?3:2; tctx.strokeStyle=P.accent; tctx.stroke();
-  tctx.fillStyle=P.accent; tctx.font='700 11px "IBM Plex Sans",sans-serif'; tctx.textAlign='center'; tctx.textBaseline='middle';
-  tctx.fillText('CTL',c.x,c.y);
-  // labels
-  tctx.textBaseline='alphabetic'; tctx.font='600 10.5px "IBM Plex Sans",sans-serif';
-  tctx.fillStyle=P.muted; tctx.textAlign='right';
-  tctx.fillText('Client .1',nodes.c0.x-14,nodes.c0.y+4);
-  tctx.fillText('Client .2',nodes.c1.x-14,nodes.c1.y+4);
-  tctx.fillText('Client .3',nodes.c2.x-14,nodes.c2.y+4);
-  tctx.fillStyle=atkHot?P.attacker:P.muted; tctx.font=(atkHot?'700 ':'600 ')+'10.5px "IBM Plex Sans",sans-serif';
-  tctx.fillText('Attacker .4',nodes.atk.x-16,nodes.atk.y+4);
-  tctx.textAlign='left'; tctx.fillStyle=P.muted; tctx.font='600 10.5px "IBM Plex Sans",sans-serif';
-  tctx.fillText('Switch',nodes.sw.x+22,nodes.sw.y+30);
-  tctx.fillText('Server',nodes.srv.x+20,nodes.srv.y+4);
-  tctx.fillStyle=P.accent; tctx.fillText('Controller',nodes.ctl.x+26,nodes.ctl.y+4);
-}
-
-/* ===== chart ===== */
-const chart=document.getElementById('chart'), cctx=chart.getContext('2d');
-let CW=0,CH=0,pad={l:46,r:12,t:12,b:22};
-function layoutChart(){
-  const r=chart.getBoundingClientRect(), dpr=Math.min(devicePixelRatio||1,2);
-  CW=r.width; CH=r.height;
-  chart.width=Math.round(CW*dpr); chart.height=Math.round(CH*dpr);
-  cctx.setTransform(dpr,0,0,dpr,0,0);
-}
-const Y0=0, Y1=5; // log10 range 1 .. 100000
-function xAt(tt){return pad.l+(tt/SIM)*(CW-pad.l-pad.r);}
-function yAt(v){const lg=Math.log10(Math.max(v,1)); return CH-pad.b-((lg-Y0)/(Y1-Y0))*(CH-pad.t-pad.b);}
-function drawChart(){
-  cctx.clearRect(0,0,CW,CH);
-  // gridlines
-  cctx.font='9px "IBM Plex Mono",monospace'; cctx.textBaseline='middle';
-  const labels={1:'1',10:'10',100:'100',1000:'1k',10000:'10k',100000:'100k'};
-  for(const v in labels){
-    const y=yAt(+v);
-    cctx.strokeStyle=P.line; cctx.lineWidth=1; cctx.globalAlpha=.6;
-    cctx.beginPath(); cctx.moveTo(pad.l,y); cctx.lineTo(CW-pad.r,y); cctx.stroke(); cctx.globalAlpha=1;
-    cctx.fillStyle=P.faint; cctx.textAlign='right'; cctx.fillText(labels[v],pad.l-6,y);
-  }
-  // x ticks
-  cctx.textAlign='center'; cctx.fillStyle=P.faint;
-  for(let s=0;s<=20;s+=5){ cctx.fillText(s+'s',xAt(s),CH-pad.b+12); }
-  // threshold
-  const yt=yAt(THR); cctx.strokeStyle=P.warn; cctx.lineWidth=1.4; cctx.setLineDash([5,4]);
-  cctx.beginPath(); cctx.moveTo(pad.l,yt); cctx.lineTo(CW-pad.r,yt); cctx.stroke(); cctx.setLineDash([]);
-  // series up to current t
-  const set=curSet(); const N=Math.max(2,Math.floor(t*6));
-  function line(fn,col,w,fill){
-    cctx.beginPath();
-    for(let i=0;i<=N;i++){const tt=Math.min(t,i*(t/N)); cctx.lineTo(xAt(tt),yAt(fn(tt)));}
-    if(fill){ cctx.lineTo(xAt(Math.min(t,SIM)),CH-pad.b); cctx.lineTo(pad.l,CH-pad.b); cctx.closePath();
-      cctx.fillStyle=col; cctx.globalAlpha=.10; cctx.fill(); cctx.globalAlpha=1; }
-    else { cctx.strokeStyle=col; cctx.lineWidth=w; cctx.lineJoin='round'; cctx.stroke(); }
-  }
-  const atkFn=tt=>rateAt(set.ts,"4",tt), cliFn=tt=>clientRate(set,tt);
-  line(atkFn,P.attacker,0,true); line(atkFn,P.attacker,2.2,false);
-  line(cliFn,P.client,2.2,false);
-  // playhead
-  const xh=xAt(Math.min(t,SIM)); cctx.strokeStyle=P.accent; cctx.globalAlpha=.5; cctx.lineWidth=1.2;
-  cctx.beginPath(); cctx.moveTo(xh,pad.t); cctx.lineTo(xh,CH-pad.b); cctx.stroke(); cctx.globalAlpha=1;
-  // detection marker
-  if(t>=DET_T){ const xd=xAt(DET_T); cctx.fillStyle=P.crit;
-    cctx.beginPath(); cctx.arc(xd,yAt(39062),3.2,0,7); cctx.fill(); }
-}
-
-/* ===== flows & log & tiles ===== */
-const flowsEl=document.getElementById('flows'), logEl=document.getElementById('log'), flowBadge=document.getElementById('flowbadge');
-const baseFlows=[
-  {c:'fwd',prio:'100',match:'eth_src=..:01 eth_dst=..:0b',act:'output:5'},
-  {c:'fwd',prio:'100',match:'eth_src=..:03 eth_dst=..:0b',act:'output:5'},
-  {c:'fwd',prio:'100',match:'eth_src=..:05 eth_dst=..:0b',act:'output:5'},
-  {c:'miss',prio:'0',match:'table-miss',act:'CONTROLLER'}
-];
-function renderFlows(){
-  const rows=[...baseFlows];
-  if(blocked) rows.unshift({c:'drop',prio:'200',match:'in_port=4 (attacker .4)',act:'DROP',mc:dropCount});
-  flowsEl.innerHTML='';
-  rows.forEach((f,i)=>{
-    const d=document.createElement('div'); d.className='flow '+f.c+((f.c==='drop'&&flowDropAdded===false)?' new':'');
-    d.innerHTML=`<span class="prio">p${f.prio}</span><span class="match">${f.match}</span><span class="act">${f.act}</span>`+
-      (f.mc!==undefined?`<span class="mc">matched ${f.mc.toLocaleString()} pkts → dropped</span>`:'');
-    flowsEl.appendChild(d);
+  const r = topo.getBoundingClientRect(), dpr = Math.min(devicePixelRatio||1, 2);
+  TW=r.width; TH=r.height; topo.width=Math.round(TW*dpr); topo.height=Math.round(TH*dpr);
+  tx.setTransform(dpr,0,0,dpr,0,0);
+  const srcs = cur().sources.filter(s=>s.role!=='server');
+  const hx = TW*0.17, topY = TH*0.10, botY = TH*0.90;
+  nodePos = {};
+  srcs.forEach((s,i)=>{
+    const y = srcs.length>1 ? topY + (botY-topY)*i/(srcs.length-1) : TH*0.5;
+    nodePos[s.mac] = {x:hx, y, s};
   });
-  if(blocked) flowDropAdded=true;
-  flowBadge.textContent=rows.length+' rules';
+  sw = {x:TW*0.56, y:TH*0.5};
+  srv = {x:TW*0.88, y:TH*0.5};
+  ctl = {x:TW*0.56, y:TH*0.12};
+  const shared = srcs.filter(s=>s.shared);
+  if(shared.length){
+    const ay = shared.reduce((a,s)=>a+nodePos[s.mac].y,0)/shared.length;
+    sharedJ = {x: TW*0.40, y: ay, port: shared[0].port};
+  } else sharedJ = null;
 }
-function addLog(id,time,msg,cls){
-  if(logSeen.has(id))return; logSeen.add(id);
-  const e=document.createElement('div'); e.className='le in'+(cls?' '+cls:'');
-  e.innerHTML=`<span class="t">${time}</span><span class="m">${msg}</span>`;
-  logEl.prepend(e);
-  while(logEl.children.length>22) logEl.lastChild.remove();
+function pathFor(s){
+  const n = nodePos[s.mac]; const pts = [{x:n.x,y:n.y}];
+  if(s.shared && sharedJ) pts.push({x:sharedJ.x,y:sharedJ.y});
+  pts.push({x:sw.x,y:sw.y},{x:srv.x,y:srv.y});
+  return pts;
 }
-function resetLog(){logEl.innerHTML='';logSeen.clear();}
-
-const mAtk=document.getElementById('m-atk'),mDeliv=document.getElementById('m-deliv'),mDrop=document.getElementById('m-drop');
-const statusEl=document.getElementById('status'),statusText=document.getElementById('statustext'),phaseEl=document.getElementById('phase');
-const tileAtk=document.getElementById('tile-atk'),topobadge=document.getElementById('topobadge');
-
-function setStatus(){
-  const atk=rateAt(curSet().ts,"4",t);
-  let cls,txt,phase;
-  if(atk<=THR){ cls='ok';txt='Normal';phase='Legitimate clients streaming UDP to the server through the OpenFlow switch.'; }
-  else if(blocked){ cls='mit';txt='Mitigated';phase='Attacker flow matched by a DROP rule at the switch — legitimate clients recovered.'; }
-  else if(detected && !mitigation){ cls='crit';txt='Under attack';phase='Flood detected, but mitigation is OFF — the bottleneck link stays saturated and legit packets are lost.'; }
-  else { cls='crit';txt='Under attack';phase='Attacker is flooding the server; the 10 Mbps access link is saturated.'; }
-  statusEl.className='pill '+cls; statusText.textContent=txt; phaseEl.textContent=phase;
-  topobadge.textContent = blocked?'mitigating':(atk>THR?'flood active':'data plane');
+function polyPos(pts, u){
+  const seg = Math.min(pts.length-2, Math.floor(u)); const f = u-seg;
+  return {x:pts[seg].x+(pts[seg+1].x-pts[seg].x)*f, y:pts[seg].y+(pts[seg+1].y-pts[seg].y)*f};
 }
-
-/* ===== timeline/log scheduling ===== */
-function updateEvents(){
-  const set=curSet();
-  if(t>=1.0) addLog('hs','1.0','Controller ↔ switch handshake OK · L2 learning active');
-  if(t>=2.0){ addLog('f1','2.0','Flow-mod add <b>prio100 eth_dst=..:0b → out:5</b> (learned)'); }
-  if(t>=2.1) addLog('poll','2.1','Port-stats polling started · interval 1.0 s');
-  if(t>=ATK_START) addLog('rise',ATK_START.toFixed(1),'Port 4 rate rising: <b>111 pps</b> and climbing…','warn');
-  if(t>=DET_T){
-    detected=true;
-    addLog('det',DET_T.toFixed(3),'<b>ALERT</b> port 4 = <b>39,062 pps</b> &gt; 1000 threshold → DETECTED','crit');
-    if(mitigation) addLog('blk',(DET_T+0.001).toFixed(3),'Flow-mod add <b>prio200 in_port=4 → DROP</b> · attacker blocked','act');
-    else addLog('nomit',(DET_T+0.001).toFixed(3),'Mitigation OFF — logging only, no flow-mod installed','warn');
+function visualRate(pps){ if(pps<=0) return 0; return pps<1500 ? pps/34 : Math.min(55, 40+(pps-1500)/3600); }
+function spawn(dt){
+  for(const s of cur().sources){
+    if(s.role==='server') continue;
+    const st = stateOf(s,t);
+    const blocked = (st==='BLOCKED'||st==='BLACKLISTED');
+    const pps = rateOf(s,t);
+    const vr = visualRate(pps)*(reduce?0.5:1);
+    spawnAcc[s.mac] = (spawnAcc[s.mac]||0) + vr*dt;
+    while(spawnAcc[s.mac]>=1 && packets.length<520){
+      spawnAcc[s.mac]-=1;
+      const pts = pathFor(s);
+      const dropSeg = blocked ? pts.length-2 : -1;
+      packets.push({pts, u:0, sp:1/(0.42+Math.random()*0.14), col:s.role==='attacker'?P.attacker:P.client,
+                    dropSeg, dropped:false, alpha:1});
+    }
   }
 }
+function updatePk(dt){
+  for(const p of packets){
+    if(p.dropped){ p.alpha -= dt*4.5; continue; }
+    p.u += p.sp*dt;
+    if(p.dropSeg>=0 && p.u>=p.dropSeg){ p.u=p.dropSeg; p.dropped=true; const q=polyPos(p.pts,p.u); p.dx=q.x; p.dy=q.y; continue; }
+    if(p.u>=p.pts.length-1) p.alpha=-1;
+  }
+  packets = packets.filter(p=>p.alpha>0);
+}
+function dnode(x,y,r,col,active){
+  tx.beginPath(); tx.arc(x,y,r,0,7); tx.fillStyle=P.panel; tx.fill();
+  tx.lineWidth=active?3:2; tx.strokeStyle=col; tx.stroke();
+  tx.beginPath(); tx.arc(x,y,r*0.45,0,7); tx.fillStyle=col; tx.fill();
+}
+function rr(x,y,w,h,r){tx.beginPath();tx.moveTo(x+r,y);tx.arcTo(x+w,y,x+w,y+h,r);tx.arcTo(x+w,y+h,x,y+h,r);tx.arcTo(x,y+h,x,y,r);tx.arcTo(x,y,x+w,y,r);tx.closePath();}
+function drawTopo(){
+  tx.clearRect(0,0,TW,TH);
+  const srcs = cur().sources.filter(s=>s.role!=='server');
+  for(const s of srcs){
+    const pts = pathFor(s); const hot = rateOf(s,t)>800;
+    tx.lineWidth = hot&&s.role==='attacker'?3:1.3;
+    tx.strokeStyle = (hot&&s.role==='attacker')?P.attacker:P.line; tx.globalAlpha=0.7;
+    tx.beginPath(); tx.moveTo(pts[0].x,pts[0].y);
+    for(let i=1;i<pts.length;i++) tx.lineTo(pts[i].x,pts[i].y);
+    tx.stroke(); tx.globalAlpha=1;
+  }
+  if(sharedJ){
+    const shared = srcs.filter(s=>s.shared); const ys = shared.map(s=>nodePos[s.mac].y);
+    const y0=Math.min(...ys)-14, y1=Math.max(...ys)+14, bx=nodePos[shared[0].mac].x+20;
+    tx.strokeStyle=P.muted; tx.lineWidth=1; tx.globalAlpha=.7;
+    tx.beginPath(); tx.moveTo(bx,y0); tx.lineTo(bx-5,y0); tx.lineTo(bx-5,y1); tx.lineTo(bx,y1); tx.stroke(); tx.globalAlpha=1;
+    tx.fillStyle=P.muted; tx.font='9px "IBM Plex Mono",monospace'; tx.textAlign='center';
+    tx.fillText('shared port '+sharedJ.port, sharedJ.x, sharedJ.y-10);
+    tx.fillStyle=P.switch; rr(sharedJ.x-4,sharedJ.y-4,8,8,2); tx.fill();
+  }
+  tx.setLineDash([4,4]); tx.strokeStyle=P.accent; tx.globalAlpha=.6; tx.lineWidth=1.4;
+  tx.beginPath(); tx.moveTo(ctl.x,ctl.y+14); tx.lineTo(sw.x,sw.y-18); tx.stroke(); tx.setLineDash([]); tx.globalAlpha=1;
+  for(const p of packets){
+    const pos = p.dropped?{x:p.dx,y:p.dy}:polyPos(p.pts,p.u);
+    tx.globalAlpha=Math.max(0,p.alpha);
+    if(p.dropped){ tx.strokeStyle=P.crit; tx.lineWidth=1.5; const s=3;
+      tx.beginPath(); tx.moveTo(pos.x-s,pos.y-s);tx.lineTo(pos.x+s,pos.y+s);tx.moveTo(pos.x+s,pos.y-s);tx.lineTo(pos.x-s,pos.y+s); tx.stroke(); }
+    else { tx.beginPath(); tx.arc(pos.x,pos.y,2.7,0,7); tx.fillStyle=p.col; tx.fill(); }
+    tx.globalAlpha=1;
+  }
+  tx.font='600 9.5px "IBM Plex Mono",monospace';
+  for(const s of srcs){
+    const n = nodePos[s.mac]; const st = stateOf(s,t);
+    let col = roleColor(s.role);
+    if(st==='BLACKLISTED') col=P.black; else if(st==='BLOCKED') col=P.accent;
+    dnode(n.x,n.y, s.role==='attacker'?10:8, col, st!=='NORMAL');
+    if(st==='BLOCKED'||st==='BLACKLISTED'){
+      const pts=pathFor(s); const sp=polyPos(pts, pts.length-2);
+      tx.strokeStyle=st==='BLACKLISTED'?P.black:P.accent; tx.lineWidth=2;
+      tx.beginPath(); tx.arc(sp.x,sp.y,8,0,7); tx.stroke();
+      tx.fillStyle=tx.strokeStyle; tx.textAlign='center'; tx.textBaseline='middle';
+      tx.fillText(st==='BLACKLISTED'?'⊘':'✕', sp.x, sp.y+0.5); tx.textBaseline='alphabetic';
+    }
+    tx.fillStyle=P.muted; tx.textAlign='right';
+    const lbl = (s.role==='innocent'?'innocent ':'')+(s.ip||s.mac);
+    tx.fillText(lbl, n.x-13, n.y+3);
+  }
+  dnode(sw.x,sw.y,14,P.switch,true);
+  dnode(srv.x,srv.y,13,P.server,true);
+  rr(ctl.x-18,ctl.y-12,36,24,5); tx.fillStyle=P.panel; tx.fill(); tx.lineWidth=2; tx.strokeStyle=P.accent; tx.stroke();
+  tx.fillStyle=P.accent; tx.font='700 10px "IBM Plex Mono",monospace'; tx.textAlign='center'; tx.textBaseline='middle';
+  tx.fillText('CTL',ctl.x,ctl.y); tx.textBaseline='alphabetic';
+  tx.fillStyle=P.muted; tx.font='600 9.5px "IBM Plex Mono",monospace'; tx.textAlign='left';
+  tx.fillText('switch', sw.x+18, sw.y+26); tx.fillText('server', srv.x+16, srv.y+3);
+}
 
-/* ===== main loop ===== */
-function recompute(){
-  const atk=rateAt(curSet().ts,"4",t);
-  blocked = mitigation && detected && atk>THR;
-  // live legit-delivery estimate: ~100% normal, dips hard while the open flood
-  // saturates the bottleneck, recovers once the DROP rule is installed.
+/* ===== charts ===== */
+function setupCanvas(cv){ const ctx=cv.getContext('2d'), r=cv.getBoundingClientRect(), dpr=Math.min(devicePixelRatio||1,2);
+  cv.width=Math.round(r.width*dpr); cv.height=Math.round(r.height*dpr); ctx.setTransform(dpr,0,0,dpr,0,0); return {ctx,w:r.width,h:r.height}; }
+const rateCv = document.getElementById('rate'), entCv = document.getElementById('entropy');
+function drawRate(){
+  const {ctx,w,h}=setupCanvas(rateCv); const pad={l:42,r:10,t:10,b:20};
+  ctx.clearRect(0,0,w,h); ctx.font='9px "IBM Plex Mono",monospace';
+  const y=v=>{const lg=Math.log10(Math.max(v,1)); return h-pad.b-(lg/5)*(h-pad.t-pad.b);};
+  const x=tt=>pad.l+(tt/SIM)*(w-pad.l-pad.r);
+  const labels={1:'1',10:'10',100:'100',1000:'1k',10000:'10k',100000:'100k'};
+  for(const v in labels){ const yy=y(+v); ctx.strokeStyle=P.line; ctx.globalAlpha=.6; ctx.beginPath(); ctx.moveTo(pad.l,yy); ctx.lineTo(w-pad.r,yy); ctx.stroke(); ctx.globalAlpha=1;
+    ctx.fillStyle=P.faint; ctx.textAlign='right'; ctx.fillText(labels[v],pad.l-5,yy+3); }
+  ctx.textAlign='center'; ctx.fillStyle=P.faint;
+  for(let s=0;s<=SIM;s+=10) ctx.fillText(s+'s',x(s),h-pad.b+12);
+  const m=cur().metrics;
+  ctx.strokeStyle=P.accent; ctx.lineWidth=1.3; ctx.setLineDash([5,4]); ctx.beginPath(); let started=false;
+  for(let i=0;i<m.t.length;i++){ if(m.t[i]>t) break; const yy=y(m.threshold[i]||0); if(m.threshold[i]>0){ if(!started){ctx.moveTo(x(m.t[i]),yy);started=true;} else ctx.lineTo(x(m.t[i]),yy);} }
+  ctx.stroke(); ctx.setLineDash([]);
+  for(const s of cur().sources){ if(s.role==='server') continue;
+    ctx.strokeStyle = s.role==='attacker'?P.attacker:P.client; ctx.globalAlpha=s.role==='attacker'?0.9:0.5; ctx.lineWidth=s.role==='attacker'?2:1.4;
+    ctx.beginPath(); let mv=false;
+    for(let sec=1;sec<=Math.min(SIM-1,Math.floor(t));sec++){ const v=rateOf(s,sec); const xx=x(sec),yy=y(v); if(!mv){ctx.moveTo(xx,yy);mv=true;}else ctx.lineTo(xx,yy);}
+    ctx.stroke(); ctx.globalAlpha=1;
+  }
+  const xh=x(Math.min(t,SIM)); ctx.strokeStyle=P.accent; ctx.globalAlpha=.4; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(xh,pad.t); ctx.lineTo(xh,h-pad.b); ctx.stroke(); ctx.globalAlpha=1;
+}
+function drawEntropy(){
+  const {ctx,w,h}=setupCanvas(entCv); const pad={l:30,r:34,t:8,b:18}; ctx.clearRect(0,0,w,h); ctx.font='9px "IBM Plex Mono",monospace';
+  const m=cur().metrics; const x=tt=>pad.l+(tt/SIM)*(w-pad.l-pad.r);
+  const yE=v=>h-pad.b-(Math.min(v,4)/4)*(h-pad.t-pad.b);
+  const yT=v=>h-pad.b-(Math.min(v,100)/100)*(h-pad.t-pad.b);
+  ctx.strokeStyle=P.line; ctx.globalAlpha=.6; for(const gy of [0,0.5,1]){const yy=pad.t+(h-pad.t-pad.b)*gy; ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(w-pad.r,yy);ctx.stroke();} ctx.globalAlpha=1;
+  ctx.fillStyle=P.faint; ctx.textAlign='right'; ctx.fillText('4',pad.l-4,pad.t+6); ctx.fillText('0',pad.l-4,h-pad.b);
+  ctx.textAlign='left'; ctx.fillStyle=P.attacker; ctx.fillText('100%',w-pad.r+3,pad.t+6);
+  function line(arr,yf,col,wd){ ctx.strokeStyle=col; ctx.lineWidth=wd; ctx.beginPath(); let mv=false;
+    for(let i=0;i<m.t.length;i++){ if(m.t[i]>t) break; const xx=x(m.t[i]),yy=yf(arr[i]); if(!mv){ctx.moveTo(xx,yy);mv=true;}else ctx.lineTo(xx,yy);} ctx.stroke(); }
+  line(m.topPct,yT,P.attacker,1.6); line(m.entropy,yE,P.switch,2);
+  const xh=x(Math.min(t,SIM)); ctx.strokeStyle=P.accent; ctx.globalAlpha=.4; ctx.beginPath(); ctx.moveTo(xh,pad.t); ctx.lineTo(xh,h-pad.b); ctx.stroke(); ctx.globalAlpha=1;
+}
+
+/* ===== panels ===== */
+const repEl=document.getElementById('rep'), flowsEl=document.getElementById('flows'), logEl=document.getElementById('log'),
+      flowBadge=document.getElementById('flowbadge'), outcomeEl=document.getElementById('outcome'), outBadge=document.getElementById('outbadge');
+function offensesUpto(ip,tt){ return eventsUpto(tt).filter(e=>e.ip===ip && e.event==='DETECTED').length; }
+function drawRep(){
+  const atk = cur().sources.filter(s=>s.role==='attacker');
+  repEl.innerHTML='';
+  for(const s of atk){
+    const st = stateOf(s,t); const off = offensesUpto(s.ip,t);
+    const d=document.createElement('div'); d.className='rep-row';
+    d.innerHTML=`<span class="ip">${s.ip} <small>:${s.port}${s.shared?' shared':''}</small></span>`+
+      `<span class="off">${off} offense${off===1?'':'s'}</span><span class="st ${st}">${st}</span>`;
+    repEl.appendChild(d);
+  }
+  if(!atk.length) repEl.innerHTML='<div class="rep-row"><span class="ip" style="color:var(--muted)">no sources flagged yet</span><span></span><span></span></div>';
+}
+let lastFlowKey='';
+function drawFlows(){
+  const latest={};
+  for(const e of eventsUpto(t)){
+    if(['BLOCKED_PORT','ISOLATED_IP','ISOLATED_MAC','UNBLOCKED'].includes(e.event)) latest[e.ip]=e;
+  }
+  const rows=[];
+  for(const ip in latest){ const e=latest[ip]; const s=cur().sources.find(x=>x.ip===ip);
+    const black = s && stateOf(s,t)==='BLACKLISTED';
+    if(e.event==='BLOCKED_PORT') rows.push({c:'port',prio:'250',match:`in_port=${e.port}  (coarse)`,act:'DROP'});
+    else if(e.event==='ISOLATED_IP') rows.push({c:'ip',prio:'260',match:`ip_src=${ip}${black?'  ⊘blacklist':''}`,act:'DROP'});
+    else if(e.event==='ISOLATED_MAC') rows.push({c:'ip',prio:'260',match:`eth_src=${e.mac}`,act:'DROP'});
+  }
+  const fwd = cur().sources.filter(s=>s.role!=='server').length;
+  rows.push({c:'fwd',prio:'100',match:`learned forwarding ×${fwd}`,act:'OUTPUT'});
+  rows.push({c:'miss',prio:'0',match:'table-miss',act:'CONTROLLER'});
+  const key=JSON.stringify(rows);
+  flowsEl.innerHTML='';
+  rows.forEach(f=>{ const d=document.createElement('div'); d.className='flow '+f.c+(key!==lastFlowKey?' new':'');
+    d.innerHTML=`<span class="prio">p${f.prio}</span><span class="match">${f.match}</span><span class="act">${f.act}</span>`; flowsEl.appendChild(d); });
+  lastFlowKey=key; flowBadge.textContent=rows.length+' rules';
+}
+const evText={DETECTED:['warn',e=>`<b>DETECTED</b> ${e.ip} — ${e.pps.toLocaleString()} pps, small pkts (offense #${e.off})`],
+  BLOCKED_PORT:['act',e=>`stage 1: DROP <b>in_port=${e.port}</b> (coarse)`],
+  ISOLATED_IP:['act',e=>`stage 2: DROP <b>ip_src=${e.ip}</b> · port freed`],
+  ISOLATED_MAC:['act',e=>`stage 2: DROP <b>eth_src=${e.mac}</b>`],
+  UNBLOCKED:['warn',e=>`hold-down expired → <b>${e.ip}</b> unblocked (watchlisted)`],
+  BLACKLISTED:['black',e=>`<b>BLACKLISTED</b> ${e.ip} — repeat offender, permanent`]};
+let logSeen=new Set();
+function drawLog(){
+  for(const e of eventsUpto(t)){
+    const id=e.t+e.mac+e.event; if(logSeen.has(id)) continue; logSeen.add(id);
+    const spec=evText[e.event]; if(!spec) continue;
+    const el=document.createElement('div'); el.className='le in '+spec[0];
+    el.innerHTML=`<span class="t">${e.t.toFixed(2)}</span><span class="m">${spec[1](e)}</span>`;
+    logEl.prepend(el); while(logEl.children.length>26) logEl.lastChild.remove();
+  }
+}
+function resetLog(){ logEl.innerHTML=''; logSeen=new Set(); lastFlowKey=''; }
+function drawOutcome(){
+  const mitF=DATA.mitigated.flow, atkF=DATA.attack.flow;
+  const rows=[
+    {cls:mitigation?'good':'bad',lab:'Legit clients',val:cur().flow.legitDeliv},
+    {cls:mitigation?'good':'bad',lab:'Innocent (shared port)',val:cur().flow.innocentDeliv,hl:true},
+    {cls:'bad',lab:'Attackers reaching server',val:cur().flow.attackerDeliv},
+  ];
+  outcomeEl.innerHTML='';
+  rows.forEach(r=>{ const d=document.createElement('div'); d.className='ob '+r.cls+(r.hl?' hl':'');
+    d.innerHTML=`<div class="obh"><span>${r.lab}</span><span class="r">${r.val}%</span></div><div class="bar"><i></i></div>`;
+    outcomeEl.appendChild(d); requestAnimationFrame(()=>d.querySelector('i').style.width=Math.max(2,r.val)+'%'); });
+  const foot=document.createElement('div'); foot.className='foot';
+  foot.innerHTML=`With mitigation, legit delivery recovers to <b style="color:var(--ok)">${mitF.legitDeliv}%</b> and the innocent on the shared port to <b style="color:var(--ok)">${mitF.innocentDeliv}%</b> `+
+    `(vs <b style="color:var(--crit)">${atkF.legitDeliv}%</b> / <b style="color:var(--crit)">${atkF.innocentDeliv}%</b> with detection only), while attackers are cut to <b>${mitF.attackerDeliv}%</b>.`;
+  outcomeEl.appendChild(foot);
+  outBadge.textContent = mitigation?'advanced controller':'detection only';
+}
+
+/* ===== status / tiles ===== */
+const statusEl=document.getElementById('status'),statusText=document.getElementById('statustext'),phaseEl=document.getElementById('phase'),
+      mFlag=document.getElementById('m-flag'),mTotal=document.getElementById('m-total'),mThr=document.getElementById('m-thr'),
+      mLegit=document.getElementById('m-legit'),mBlack=document.getElementById('m-black'),tileSrc=document.getElementById('tile-src'),topobadge=document.getElementById('topobadge');
+function updateChrome(){
+  const srcs=cur().sources; const met=metricAt(t);
+  const flagged=srcs.filter(s=>s.role==='attacker' && ['BLOCKED','BLACKLISTED'].includes(stateOf(s,t))).length;
+  const anyAttackActive = srcs.some(s=>s.role==='attacker' && rateOf(s,t)>800);
+  const black = srcs.filter(s=>stateOf(s,t)==='BLACKLISTED').length;
+  mFlag.textContent=srcs.filter(s=>s.role==='attacker'&&eventsUpto(t).some(e=>e.ip===s.ip)).length;
+  mTotal.textContent=srcs.filter(s=>s.role!=='server').length;
+  mThr.textContent=met.threshold>0?Math.round(met.threshold).toLocaleString():'—';
+  mBlack.textContent=black;
   let target = 100;
-  if(atk>THR && !blocked) target = 38;   // bottleneck saturated, legit packets lost
-  else if(blocked) target = 92;          // attacker dropped at switch, clients recover
-  deliv += (target-deliv)*0.9;           // snap toward target
-  // drop counter integrates attacker pps while blocked
-  if(blocked){ dropCount += atk*(t-prevT); }
-  prevT=t;
+  if(anyAttackActive){ const anyBlocked = srcs.some(s=>s.role==='attacker'&&['BLOCKED','BLACKLISTED'].includes(stateOf(s,t)));
+    target = mitigation ? (anyBlocked? Math.round(cur().flow.legitDeliv) : 40) : Math.round(cur().flow.legitDeliv); }
+  mLegit.textContent = Math.round(target);
+  tileSrc.className='tile'+(anyAttackActive?' alarm':'');
+  let cls,txt,ph;
+  if(!anyAttackActive){ cls='ok';txt='Normal'; ph='Legitimate clients streaming to the server; controller polling per-source flow stats.'; }
+  else if(black){ cls='mit';txt='Mitigated'; ph='Repeat offenders blacklisted; attackers isolated by IP while the innocent on the shared port keeps flowing.'; }
+  else if(flagged){ cls='mit';txt='Mitigated'; ph='Attackers isolated by per-IP DROP rules — the innocent client sharing a port is spared.'; }
+  else if(!mitigation){ cls='crit';txt='Under attack'; ph='Detection only (mitigation OFF): the flood reaches the server and legit delivery collapses.'; }
+  else { cls='crit';txt='Under attack'; ph='Flood detected; controller installing two-stage drop rules.'; }
+  statusEl.className='pill '+cls; statusText.textContent=txt; phaseEl.textContent=ph;
+  topobadge.textContent = flagged?'mitigating':(anyAttackActive?'flood active':'data plane');
 }
-function render(){
-  recompute(); setStatus(); updateEvents();
-  const atk=Math.round(rateAt(curSet().ts,"4",t));
-  mAtk.textContent=atk.toLocaleString(); tileAtk.className='tile'+(atk>THR?' alarm':'');
-  mDeliv.textContent=Math.round(deliv); mDrop.textContent=Math.round(dropCount).toLocaleString();
-  document.getElementById('clock').textContent=t.toFixed(2);
-  const pct=(t/SIM)*100; document.getElementById('fill').style.width=pct+'%';
-  document.getElementById('thead').style.left=pct+'%';
-  document.getElementById('track').setAttribute('aria-valuenow',t.toFixed(1));
-  renderFlows();
-  drawTopo(); drawChart();
+
+/* ===== loop & controls ===== */
+function render(){ drawTopo(); drawRate(); drawEntropy(); drawRep(); drawFlows(); drawLog(); updateChrome();
+  document.getElementById('clock').textContent=t.toFixed(1);
+  const pct=(t/SIM)*100; document.getElementById('fill').style.width=pct+'%'; document.getElementById('thead').style.left=pct+'%';
 }
-function frame(ts){
-  if(!last)last=ts; let dt=(ts-last)/1000; last=ts; if(dt>0.1)dt=0.1;
-  if(playing){
-    t+=dt*speed;
-    if(t>=SIM){ t=SIM; playing=false; playBtn.textContent='▶ Play'; }
-    updateEvents();
-  }
-  spawnPackets(dt); updatePackets(dt);
-  render();
+const playBtn=document.getElementById('play');
+function frame(ts){ if(!last)last=ts; let dt=(ts-last)/1000; last=ts; if(dt>0.1)dt=0.1;
+  if(playing){ t+=dt*speed; if(t>=SIM){t=SIM;playing=false;playBtn.textContent='▶ Play';} }
+  spawn(dt); updatePk(dt); render(); requestAnimationFrame(frame);
+}
+function resetAll(hard){ t=0;packets=[];spawnAcc={};resetLog(); if(hard){playing=false;playBtn.textContent='▶ Play';} }
+playBtn.onclick=()=>{ if(t>=SIM) resetAll(false); playing=!playing; playBtn.textContent=playing?'❚❚ Pause':'▶ Play'; last=0; };
+document.getElementById('restart').onclick=()=>{ resetAll(true); playing=true; playBtn.textContent='❚❚ Pause'; last=0; };
+document.querySelectorAll('[data-spd]').forEach(b=>b.onclick=()=>{ speed=+b.dataset.spd; document.querySelectorAll('[data-spd]').forEach(x=>x.setAttribute('aria-pressed',x===b)); });
+const mitBtn=document.getElementById('mit');
+function setMit(on){ mitigation=on; mitBtn.setAttribute('aria-pressed',on); mitBtn.querySelector('.lab').textContent=on?'Mitigation ON':'Mitigation OFF';
+  resetLog(); layoutTopo(); drawOutcome(); }
+mitBtn.onclick=()=>setMit(!mitigation);
+
+const track=document.getElementById('track');
+function scrub(clientX){ const r=track.getBoundingClientRect(); let f=(clientX-r.left)/r.width; f=Math.max(0,Math.min(1,f)); t=f*SIM; resetLog(); }
+let scrubbing=false;
+track.addEventListener('pointerdown',e=>{scrubbing=true;track.setPointerCapture(e.pointerId);playing=false;playBtn.textContent='▶ Play';scrub(e.clientX);});
+track.addEventListener('pointermove',e=>{if(scrubbing)scrub(e.clientX);});
+track.addEventListener('pointerup',()=>scrubbing=false);
+
+function resizeAll(){ layoutTopo(); }
+new ResizeObserver(resizeAll).observe(topo);
+window.addEventListener('resize',resizeAll);
+
+function boot(){
+  if(!DATA.mitigated){ document.getElementById('phase').textContent='No data embedded yet — run scripts/analysis/build_dashboard.py.'; return; }
+  document.getElementById('mkAttack').style.left=(META.attackStart/SIM*100)+'%';
+  layoutTopo(); setMit(true); resetAll(true);
+  setTimeout(()=>{ playing=true; playBtn.textContent='❚❚ Pause'; last=0; }, 500);
   requestAnimationFrame(frame);
 }
-
-/* ===== controls ===== */
-const playBtn=document.getElementById('play');
-function reset(hard){
-  t=0;prevT=0;detected=false;blocked=false;dropCount=0;deliv=100;flowDropAdded=false;packets=[];
-  spawnAcc={c0:0,c1:0,c2:0,atk:0}; resetLog();
-  if(hard){playing=false;playBtn.textContent='▶ Play';}
-}
-playBtn.onclick=()=>{ if(t>=SIM) reset(false); playing=!playing; playBtn.textContent=playing?'❚❚ Pause':'▶ Play'; last=0; };
-document.getElementById('restart').onclick=()=>{ reset(true); playing=true; playBtn.textContent='❚❚ Pause'; last=0; };
-document.querySelectorAll('[data-spd]').forEach(b=>b.onclick=()=>{
-  speed=+b.dataset.spd; document.querySelectorAll('[data-spd]').forEach(x=>x.setAttribute('aria-pressed',x===b));
-});
-const mitBtn=document.getElementById('mit');
-function setMit(on){ mitigation=on; mitBtn.setAttribute('aria-pressed',on);
-  mitBtn.querySelector('.lab').textContent=on?'Mitigation ON':'Mitigation OFF';
-  document.getElementById('ob-att').classList.toggle('cur',!on);
-  document.getElementById('ob-mit').classList.toggle('cur',on);
-  // re-evaluate from current time
-  detected=false;blocked=false;dropCount=0;flowDropAdded=false;resetLog();
-  updateEvents(); // rebuild log for the current time under the new setting
-}
-mitBtn.onclick=()=>setMit(!mitigation);
-// scrub
-const track=document.getElementById('track');
-function scrubTo(clientX){
-  const r=track.getBoundingClientRect(); let f=(clientX-r.left)/r.width; f=Math.max(0,Math.min(1,f));
-  const nt=f*SIM;
-  // if scrubbing backwards past events, reset detection state and rebuild
-  reset(false); t=nt; prevT=nt;
-  // fast-forward event/drop state to t
-  detected = t>=DET_T; blocked = mitigation && detected && rateAt(curSet().ts,"4",t)>THR;
-  if(blocked){ dropCount = rateAt(curSet().ts,"4",t)*(t-DET_T); flowDropAdded=true; }
-  resetLog(); updateEvents();
-}
-let scrubbing=false;
-track.addEventListener('pointerdown',e=>{scrubbing=true;track.setPointerCapture(e.pointerId);playing=false;playBtn.textContent='▶ Play';scrubTo(e.clientX);});
-track.addEventListener('pointermove',e=>{if(scrubbing)scrubTo(e.clientX);});
-track.addEventListener('pointerup',()=>scrubbing=false);
-track.addEventListener('keydown',e=>{ if(e.key==='ArrowRight'){t=Math.min(SIM,t+0.5);scrubTo(track.getBoundingClientRect().left+ (t/SIM)*track.getBoundingClientRect().width);e.preventDefault();}
-  if(e.key==='ArrowLeft'){t=Math.max(0,t-0.5);scrubTo(track.getBoundingClientRect().left+ (t/SIM)*track.getBoundingClientRect().width);e.preventDefault();} });
-
-/* detection marker position on timeline */
-document.getElementById('detmk').style.left=(DET_T/SIM*100)+'%';
-
-/* resize */
-function resizeAll(){ layoutTopo(); layoutChart(); }
-const ro=new ResizeObserver(resizeAll); ro.observe(topo); ro.observe(chart);
-window.addEventListener('resize',resizeAll);
-resizeAll(); setMit(true); reset(true);
-// autoplay the story
-setTimeout(()=>{ playing=true; playBtn.textContent='❚❚ Pause'; last=0; }, 500);
-requestAnimationFrame(frame);
+boot();
 </script>

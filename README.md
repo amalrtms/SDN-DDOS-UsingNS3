@@ -17,12 +17,40 @@ An interactive, browser-based replay of the real simulation output lives in
 
 **https://amalrtms.github.io/SDN-DDOS-UsingNS3/**
 
-It animates the network topology and plays back the measured per-port packet
-rates, the controller's detection event, the installed DROP flow rule, and the
-recovery of legitimate traffic. Toggle **Controller mitigation** off to compare
-the attack-only run against the mitigated run. Every number is read from the
-committed `results/` data; rebuild it after new runs with
-`python3 scripts/analysis/build_dashboard.py`.
+It animates the network topology and plays back the measured per-source packet
+rates, the controller's detection events, the two-stage DROP flow rules, the
+source-entropy collapse, and the recovery of legitimate traffic. Toggle
+**Controller mitigation** off to compare the detection-only run against the
+mitigated run. Every number is read from the committed `results/` data; rebuild
+it after new runs with `python3 scripts/analysis/build_dashboard.py`.
+
+## Advanced controller (v2)
+
+A second controller, `SdnControllerAdv` ([`src/controller/sdn-controller-adv.cc`](src/controller/sdn-controller-adv.cc)),
+and the `ddos-advanced` experiment ([`simulations/ddos-advanced`](simulations/ddos-advanced))
+extend the project in response to review feedback. The topology adds **one
+shared switch port carrying both an attacker and an innocent client**, and the
+number of clients and attackers is **randomised per run** (`--run`):
+
+1. **Per-source detection** — polls OpenFlow `flow-stats` and aggregates by
+   `eth_src`, so each host is measured even when several share one port (plain
+   per-port stats cannot).
+2. **Multi-signal + adaptive threshold** — flags a source only when its rate
+   beats an adaptive baseline (`BaselineMultiplier × baseline`, floored at
+   `MinThreshold`) **and** its average packet size is small. Source entropy and
+   top-talker share are logged as extra indicators. (There is no international
+   standard pps value for a DDoS — the threshold is deliberately baseline-relative.)
+3. **Two-stage mitigation** — a coarse `in_port` DROP first, then a surgical
+   `ip_src` DROP while the port block is lifted, so the innocent client sharing
+   the attacker's port recovers (measured: **~83% delivery, same as a dedicated
+   client**, vs ~30% with no mitigation).
+4. **Penalties** — each offence is held down longer (5 s → 20 s → …); after
+   `MaxStrikes` the source is permanently `BLACKLISTED`.
+
+Run it with `./ns3 run "ddos-advanced --run=1"` (results in `results/adv-mitigated`
+and `results/adv-attack`). Rate-limiting with OpenFlow **meters** instead of an
+outright drop is left as future scope. The original Phase 1–13 controller and its
+results are unchanged; the v1 dashboard is preserved as `index-v1.html`.
 
 ---
 
